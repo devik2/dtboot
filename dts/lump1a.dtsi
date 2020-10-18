@@ -1,0 +1,182 @@
+#include "stm32mp157.dtsi"
+#include "stm32mp15-pinctrl.dtsi"
+#include "stm32mp15xxac-pinctrl.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+	compatible = "st,stm32mp1-lump", "st,stm32mp157";
+
+	cpus {
+		psci {
+			compatible = "arm,psci-0.2";
+			method = "smc";
+		};
+	};
+	co-boot {
+		hse@10 {
+			compatible = "mp1,hse";
+			order = <10>;
+		};
+		csi@20 {
+			compatible = "mp1,csicomp";
+			order = <20>;
+		};
+		mtdfix@20 {
+			compatible = "cob,mtdfix";
+			patch-size-to = <&ubi_part>;
+		};
+		clocks@40 {
+			compatible = "mp1,clocks";
+			order = <30>;
+			mp1,hse-khz = <24000>;
+			mp1,pll1 = <2 42  1 0  0>;
+			mp1,pll2 = <2 50  3 0  2>;
+			mp1,pll3 = <3 100 6 18 18>;
+			mp1,pll4 = <2 50 24 70 20>;
+			mp1,apb-divs = <1 1 1 1 2>;
+			mp1,rtc-div = <0x18>;
+		};
+		ddr@90 {
+			compatible = "mp1,ddr3";
+			patch-size-to = <&main_mem>;
+			order = <90>;
+		};
+		linux@99 {
+			compatible = "cob,ldlinux";
+			order = <100>;
+			boot-flags = <0>;
+			enter-shell = <0>;
+			linux-img-start = <0x100000>;
+		};
+	};
+
+	main_mem: memory@c0000000 {
+		device_type = "memory";
+		reg = <0xc0000000 0x04000000>; // 64MB is minimum
+	};
+
+	vdd: fixedregulator1 {
+		compatible = "regulator-fixed";
+		regulator-name = "vdd";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+	};
+};
+
+&pinctrl {
+	usart1_pins_a: usart1-0 {
+		pins1 {
+			pinmux = <STM32_PINMUX('A', 9, AF7)>; /* TX */
+			bias-disable;
+			drive-push-pull;
+			slew-rate = <0>;
+		};
+		pins2 {
+			pinmux = <STM32_PINMUX('B', 2, AF4)>; /* RX */
+			bias-disable;
+		};
+	};
+};
+&pinctrl_z {
+	i2c5_pins_z: i2c5-z {
+		pins {
+			pinmux = <STM32_PINMUX('Z', 4, AF4)>, /* I2C5_SCL */
+				 <STM32_PINMUX('Z', 1, AF4)>; /* I2C5_SDA */
+			bias-pull-up;
+			drive-open-drain;
+			slew-rate = <0>;
+		};
+	};
+};
+
+&i2c5 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c5_pins_z>;
+	i2c-scl-rising-time-ns = <300>;
+	i2c-scl-falling-time-ns = <20>;
+	status = "okay";
+	/delete-property/dmas;
+	/delete-property/dma-names;
+
+};
+
+&qspi {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&qspi_clk_pins_a>, <&qspi_bk1_pins_a>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+	flash@0 {
+		compatible = "spi-nand";
+		reg = <0>;
+		spi-max-frequency = <50000000>;
+		spi-rx-bus-width = <2>;
+
+		partitions {
+			 compatible = "fixed-partitions";
+			 #address-cells = <1>;
+			 #size-cells = <1>;
+
+			partition@000000 {
+				label ="boot";
+				reg = <0x0000000 0x40000>; /* 256k bootldr */
+			};
+			partition@000001 {
+				label ="dtb";
+				reg = <0x0040000 0x40000>; /* 256k dtb */
+			};
+			partition@010000 {
+				label ="kernel";
+				reg = <0x0100000 0x400000>; /* 4M kernel */
+			};
+			ubi_part: partition@500000 {
+				label ="ubi";
+				reg = <0x0500000 0x3000000>; /* 48M ubi */
+			};
+		};
+	};
+};
+
+&dma2 {
+	sram = <&dma_pool>;
+};
+
+&dts {
+	status = "okay";
+};
+
+&ipcc {
+	status = "okay";
+};
+
+&pwr_regulators {
+        vdd-supply = <&vdd>;
+        vdd_3v3_usbfs-supply = <&vdd>;
+};
+
+&usbphyc_port0 {
+        phy-supply = <&vdd>;
+        vdda1v1-supply = <&reg11>;
+        vdda1v8-supply = <&reg18>;
+};
+
+&usbphyc_port1 {
+        phy-supply = <&vdd>;
+        vdda1v1-supply = <&reg11>;
+        vdda1v8-supply = <&reg18>;
+};
+
+&rng1 {
+	status = "okay";
+};
+
+&rtc {
+	status = "okay";
+};
+
+&usart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&usart1_pins_a>;
+	status = "okay";
+};

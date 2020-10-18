@@ -1,0 +1,23 @@
+/dts-v1/;
+
+#include "lump1-tester.dts"
+
+/ {
+	model = "tester-u7";
+
+	aliases {
+		serial0 = &uart7;
+	};
+};
+
+&ubi_part {
+//	reg = <0x0500000 0x7800000>; /* 120M ubi */
+};
+
+// move console to U7 and use U1 TX line for STM8 UART
+&uart7 {
+	status = "okay";
+};
+&usart1 {
+	status = "disabled";
+};
