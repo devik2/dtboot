@@ -16,7 +16,7 @@ uint32_t get_arm_tfreq();
 extern uint8_t ms_freq_sh;
 int ddr_init(int use_slow,int use_ddr3);
 int set_pll(int n,int fi,int m,int mul,int dp,int dq,int dr);
-void stgen_setup(int mhz,int use_hse);
+void stgen_setup(int mhz,int use_hse,int keep);
 int set_tz_sec();
 
 void i2c_setup(I2C_TypeDef *I2C);

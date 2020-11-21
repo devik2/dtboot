@@ -77,7 +77,7 @@ void run_modules(struct boot_param_header *fdt,uint32_t *root)
 			xprintf("unknown mod '%s'\n",ptr);
 			continue;
 		}
-		xprintf("call %s at %X\n",ptr,md);
+		xprintf("[%d] call %s at %X\n",get_ms_precise(),ptr,md);
 		// TODO: async exec & return val check
 		int r = md->run(md,fdt,idx[i]);
 		if (r) {

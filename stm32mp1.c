@@ -116,14 +116,21 @@ int set_pll(int n,int fi,int m,int mul,int dp,int dq,int dr)
 	return fvco;
 }
 
+static uint32_t fq1e3_cache,fq1e6_cache;
+
 uint32_t call_smc(uint32_t cmd,uint32_t a1,uint32_t a2);
-void stgen_setup(int khz,int use_hse)
+void stgen_setup(int khz,int use_hse,int keep)
 {
 	RCC->STGENCKSELR = use_hse;
 	volatile uint32_t *STG = (void*)STGENC_BASE;
 	STG[0] = 0; // stop
 	int hz = khz*1000;
-	STG[2] = 0; STG[3] = 0;
+	uint64_t x = 0;
+	if (keep) { // assume STG[3] is zero (valid for boot time<1min)
+		x = STG[2];
+		x = x*hz/STG[8]; // recompute time for new clock
+	}
+	STG[2] = x; STG[3] = 0;
 	STG[8] = hz;
 #if NSEC
 	if (((struct stm32mp1_mctx*)mctx)->boot_flags[BFI_NONS]<=0)
@@ -134,6 +141,7 @@ void stgen_setup(int khz,int use_hse)
 	STG[0] = 1; // start
 	for (ms_freq_sh = 0;hz;ms_freq_sh++) hz >>= 1;
 	ms_freq_sh -= 10;
+	fq1e6_cache = fq1e3_cache = 0;
 	uint64_t t = get_arm_time();
 	uint32_t tf = get_arm_tfreq();
 	xprintf("[%d] delay tmr %X %X @%d\n",get_ms_precise(),
@@ -150,17 +158,15 @@ uint32_t get_ms()
 uint64_t get_us_precise()
 {
 	uint64_t tm = get_arm_time();
-	static uint32_t fq;
-	if (!fq) fq = get_arm_tfreq()/1000000;
-	return tm/fq;
+	if (!fq1e6_cache) fq1e6_cache = get_arm_tfreq()/1000000;
+	return tm/fq1e6_cache;
 }
 
 uint32_t get_ms_precise()
 {
 	uint64_t tm = get_arm_time();
-	static uint32_t fq;
-	if (!fq) fq = get_arm_tfreq()/1000;
-	return tm/fq;
+	if (!fq1e3_cache) fq1e3_cache = get_arm_tfreq()/1000;
+	return tm/fq1e3_cache;
 }
 
 void udelay(uint32_t us)
@@ -226,7 +232,7 @@ uint32_t crc32 (uint32_t crc, const void *p, uint32_t len)
 }
 
 extern struct stm32mp1_mctx mp1_mctx; // TODO
-extern uint32_t prog_l; // to detect prog mode
+extern uint32_t prog_x; // to detect prog mode
 // returns nonzero if we need switch to NS
 int set_tz_sec() 
 {
@@ -246,7 +252,7 @@ int set_tz_sec()
 	TZC->REG_ID_ACCESSO =  0xffffffff;
 	TZC->REG_ATTRIBUTESO = 0xc0000003;
 	TZC->GATE_KEEPER = 3;
-	if (prog_l) return 0;
+	if (prog_x) return 0;
 	return ((struct stm32mp1_mctx*)mctx)->boot_flags[BFI_NONS]>0 ? 0 : 1;
 }
 
@@ -484,7 +490,7 @@ static int run_clocks(struct module_desc_t *dsc,struct boot_param_header *fdt,
 	if (plls & 1) RCC->MPCKSELR = 2;	// MPU from PLL
 	if (plls & 2) RCC->ASSCKSELR = 2;	// AXI from PLL
 	if (plls & 4) RCC->MSSCKSELR = 3;	// MCU from PLL3P
-	if (hse_fq) stgen_setup(hse_fq,1);
+	if (hse_fq) stgen_setup(hse_fq,1,1);
 	return 0;
 }
 

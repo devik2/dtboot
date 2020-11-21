@@ -83,7 +83,9 @@ extern int p_scr;
 uint32_t psci_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3);
 uint32_t smc_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 {
-	xprintf("[%d] SMC %X %X %X %X %X pscr:%X\n",get_ms_precise(),
+	xprintf("[%d] SMC %X %X %X %X %X pscr:%X\n",
+			// for SMC_SET_FREQ time may be imprecise for moment
+			cmd == SMC_SET_FREQ ? 0:get_ms_precise(),
 			cmd,a1,a2,a3,get_SP(),p_scr);
 	if (cmd == SMC_DUMP_INFO) {
 		dump_reg("CPSR",get_CPSR(),_bn_cpsr);
@@ -212,7 +214,7 @@ void main(const boot_api_context_t *ctx)
 
 	rcc_to_defaults();	// in case of soft reboots
 	common_gpios_preinit();
-	stgen_setup(64000,0);	// preliminary timer for delays
+	stgen_setup(64000,0,0);	// preliminary timer for delays
 	mp1_initial_console();
 	mp1_show_boot_flags();
 
