@@ -60,12 +60,12 @@ in order to format and populate UBI with main filesystem.
 ## Boot flow on STM32MP1
 
 DTBoot is loaded by SoC ROM code (and optionaly authenticated in
-case SoC implements authenticated boot) and starts in start.S
+case SoC implements authenticated boot) and starts in `start.S`
 file (basic Cortex A initialization).
 
 Next clock for all relevant periphs are enabled (still running on 
 64MHz HSI), successfull boot acked to power MCU on our MP1 module
-(works around errata with stuck clock muxes), and boot flags
+(works around STM32MP1 errata with stuck clock muxes), and boot flags
 are read (see section **Boot flags** below).
 
 Then we setup STGEN with HSI (to allow for basic timings) and
@@ -82,9 +82,9 @@ When DTBoot is loaded by debugger and its 0x2c relative address
 is set to nonzero (1 for flash programmer), selected custom code
 is run instead of regular boot.
 
-Else appropriate MTD address is loaded (according to bootflags) as
-uImage which contains DTB - DTB is then used by both DTBoot
-and kernel.
+Else appropriate MTD address (according to bootflags) is loaded as
+uImage which contains DTB. 
+DTB is then used by both DTBoot and kernel.
 
 Remainder of boot is controlled by running modules described
 in `/dt-boot/*` sections.
@@ -155,3 +155,110 @@ alternative DTB tailored for use in the tester.
 - `BFI_SHELL(5)` Value is conveyed to kernel in device tree node 
   `dt-boot/enter-shell`. Typicaly initrd based emergency code enters
   shell when set.
+
+## DT configuration
+
+Once DTB is loaded, its `dt-boot` subsection is inspected. All
+subsections should be named as `name@nn` where nn are decimal
+digits.
+All subsections are sorted by `nn` before being executed.
+
+Then each subsection's `compatible` property is examined and
+if modules' driver is known, it is executed.
+
+Let's look at simple example:
+
+```dts
+\ {
+	dt-boot {
+		// these are overriden by bootloader
+                enter-shell = <0>;
+                boot-flags = <0 0 0 0>;
+
+		ddr@60 {
+                        compatible = "mp1,ddr3";
+                        patch-size-to = <&main_mem>;
+                };
+	};
+	main_mem: memory@c0000000 {
+                device_type = "memory";
+                reg = <0xc0000000 0x04000000>; // 64MB is minimum here
+        };
+};
+```
+
+`enter-shell` and `boot-flags` are placeholders - DTBoot fills them
+and linux userspace can read them in `/sys/firmware/devicetree`.
+
+`ddr@60` block uses `mp1,ddr3` driver contained in DTBoot and instructs
+it to patch autodetected DDR size to `reg` of `main_mem`.
+Similarly, size of flash can be patched to Linux MTD partition table.
+
+### driver 'cob,ldlinux'
+
+Loads kernel uImage from MTD offset in `linux-img-start` property
+and runs it.
+
+If `linux-rd-start` is defined, loads RD too and patches its location
+into `/chosen` DTB node.
+
+Load addresses for both kernel and RD are read from uImage header.
+
+### driver 'cob,mtdfix'
+
+Fixes size in partition subnode of **fixed-partitions** as referenced
+by `patch-size-to` property. Size if set to flash size minus partition
+offset minus 8 erase blocks (leaving space for BBT).
+
+### driver 'mp1,console'
+
+(Re-)configure serial console to another one. `uid` is ID
+of existing UART/pin combination from table in `BFI_UARTL` description.
+`mp1,hse-khz`, if present, conveys HSE freq and forces its use instead of HSI.
+`baud-rate` is serial baud rate in bps. 115200 is used if missing.
+
+`sync-console` is bool property which indicates that console is synchronous
+(as oposed to async coroutine based). Can be used to debug timing errors
+but renders boot slower.
+
+### driver 'mp1,hse', 'mp1,csicomp', 'mp1,lse', 'mp1,rtc'
+
+Enables given hardware. RTC should be last (it waits for LSE and
+it can be 1000ms sometimes).
+
+### driver 'mp1,ddr3'
+
+Starts DDR3, PLL2.R must be set correctly up (min 300MHz). It uses
+default generic DDR3 parameters for now. 
+It is planned to add timing params here.
+`patch-size-to` can be used to patch autodetected size to `memory` node.
+
+### driver 'mp1,clocks'
+
+Set PLLs up. `mp1,hse-khz` prop gives HSE frequency. If 0 or omited,
+64MHz HSI is used.
+`mp1,pll1`...`mp1,pll4` = `<M N P Q R>` where M is predivider, N is
+multiplier, P/Q/R are post-dividers of outputs. See STM32MP1 reference
+manual for details.
+`mp1,apb-divs` gives dividers for ABP1..5.
+`mp1,rtc-div` is divider for RTC.
+
+If `mp1,hse-khz` is given, STGEN is reconfigured to HSE.
+
+### driver 'mp1,gpio'
+
+Allows to setup gpio muxes. `mp1,mux` sets one mux per value. Use
+macros in [dt-boot-gpio.h](dts/dt-boot-gpio.h).
+`mp1,wr32` contains triples `<A V M>` and sets 32 bit address 
+MEM[A]=(MEM[A]&M)|V.
+
+Example usage to enable MCO clock and ETH_CLK early (or linux can't
+use MDIO to communicate with the PHY):
+```dts
+  compatible = "mp1,gpio";
+  mp1,mux = <PM_MUX(PM_B(8),PM_OUT|PM_DFLT(0),0)>, // PHY reset
+            <PM_MUX(PM_C(12),PM_OUT|PM_ALT,1)>, // MCO2
+            <PM_MUX(PM_G(8),PM_OUT|PM_ALT|PM_SPD(1),2)>; // ETH_CLK
+  mp1,wr32 = <0x50000218 0x80 0>, // enable ETH_CK
+             <0x50000804 0x1004 0>;  // 24MHz to MCO2
+```
