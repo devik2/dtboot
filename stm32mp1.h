@@ -51,4 +51,6 @@ void mp1_read_boot_flags(struct stm32mp1_mctx *ctx);
 void mp1_show_boot_flags();
 uint32_t mp1_uart_tx_setup(uint32_t seq,int up);
 USART_TypeDef *mp1_get_uart(uint32_t uid,uint32_t clk);
+void init_usart(int id,USART_TypeDef *usart,int div,int buf);
+
 #endif

@@ -137,8 +137,6 @@ static void common_gpios_preinit()
 	gpio_setup_one(PIN_QCLK_EN, PM_IN|PM_PU,0);
 }
 
-void init_usart(int id,USART_TypeDef *usart,int div);
-
 // MP1 starts on HSI, prepare main console on some default
 // pins. It will be replaced once HSE and DT is available
 static void mp1_initial_console()
@@ -146,14 +144,13 @@ static void mp1_initial_console()
 	const int div = 64*1000000/115200; // divide HSI osc
 
 	int uid = mp1_mctx.boot_flags[BFI_UARTL];
-	if (uid<0) uid = mp1_mctx.boot_flags[BFI_UARTL]+16;
+	if (uid<0) uid = mp1_mctx.boot_flags[BFI_UARTH]+16;
 	int uart = mp1_uart_tx_setup(uid,1);
 	if (!uart) return; // no console
 
 	USART_TypeDef *u = mp1_get_uart(uart,0);
 	if (!u) return;
-	u->CR1 = 0;	// make sure CR2 is writable
-	init_usart(0,u,div);
+	init_usart(0,u,div,0); // initial is non-buffered always
 	xprintf("[%d] serial %d is set up\n",get_ms_precise(),uart);
 }
 

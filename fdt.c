@@ -179,7 +179,11 @@ int fetch_fdt_ints(struct boot_param_header *fdt,uint32_t *root,
 {
 	uint32_t *arg;
 	int i,sz = lookup_fdt(fdt,path,&arg,root);
-	if (sz<=0) return 0;
+	if (sz<0) return 0;
+	if (!mincnt && !sz) {
+		tgt[0] = 1; // special handling for bool props
+		return 0;
+	}
 	if (sz & 3) goto bad;
 	sz /= 4;
 	if (sz<mincnt || sz>maxcnt) {
