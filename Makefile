@@ -3,7 +3,7 @@ MKIMAGE?=/home/devik/bin/mkimage
 
 CROSS_COMPILE?=arm-none-eabi-
 INCS=-IInclude -I.
-CFLAGS=-Os -gdwarf-4 -falign-functions=4 -fno-common -std=gnu99 $(INCS) -mno-unaligned-access 
+CFLAGS=-Os -gdwarf-4 -falign-functions=4 -fno-common -std=gnu99 $(INCS) -mno-unaligned-access -DGIT='"$(shell git rev-parse --short HEAD)"'
 CC=$(CROSS_COMPILE)gcc -mcpu=cortex-a7 -D_GNU_SOURCE=1
 LIBGCC:=$(shell $(CC) -print-libgcc-file-name)
 LDFLAGS=-Map=map.txt -static -g -L$(dir $(LIBGCC)) -L$(NLIB) -lc -lgcc

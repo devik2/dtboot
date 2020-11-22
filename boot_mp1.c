@@ -29,6 +29,7 @@
 #define PIN2_ACK PM_F(14)
 
 struct stm32mp1_mctx mp1_mctx;
+const char *git_version = GIT;
 
 static void mp1_minimal_ddr_clock()
 {
@@ -53,22 +54,6 @@ static void rcc_to_defaults()
 
 extern char _bss_start[];
 extern char _bss_end[];
-
-static void test_sleep()
-{
-	xprintf("sleep test\n");
-	udelay(1000);
-	//DBGMCU->CR = 7;
-	//__WFI();
-	RCC->MP_GCR = 0;	// MCU in HOLD_BOOT
-	RCC->MP_GRSTCSETR = RCC_MP_GRSTCSETR_MCURST;
-
-	PWR->MPUCR = PWR_MPUCR_PDDS;
-	PWR->MCUCR = PWR_MPUCR_PDDS;
-	RCC->MP_SREQSETR = RCC_MP_SREQSETR_STPREQ_P0|RCC_MP_SREQSETR_STPREQ_P1;
-	udelay(1000);
-	__WFI();
-}
 
 #if NSEC
 int get_CPSR();
@@ -154,7 +139,8 @@ static void mp1_initial_console()
 	USART_TypeDef *u = mp1_get_uart(uart,0);
 	if (!u) return;
 	init_usart(0,u,div,0); // initial is non-buffered always
-	xprintf("[%d] serial %d is set up\n",get_ms_precise(),uart);
+	xprintf("[%d] UART%d is set up, git_rev=%s\n",
+			get_ms_precise(),uart,git_version);
 }
 
 // TODO
@@ -235,7 +221,7 @@ void main(const boot_api_context_t *ctx)
 	mp1_initial_console();
 	mp1_show_boot_flags();
 
-	call_smc(SMC_DUMP_INFO,0,0);
+	//call_smc(SMC_DUMP_INFO,0,0);
 
 	coro_init();
 	// init MTD to get FDT
