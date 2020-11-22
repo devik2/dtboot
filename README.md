@@ -244,6 +244,7 @@ multiplier, P/Q/R are post-dividers of outputs. See STM32MP1 reference
 manual for details.
 `mp1,apb-divs` gives dividers for ABP1..5.
 `mp1,rtc-div` is divider for RTC.
+`mp1,qspi-div` is QSPI divider from PLL2.P (AXI clk).
 
 If `mp1,hse-khz` is given, STGEN is reconfigured to HSE.
 
