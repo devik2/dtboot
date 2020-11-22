@@ -146,7 +146,9 @@ alternative DTB tailored for use in the tester.
   E.g. byte `0x12` sets console to **USART1** at **PA9**.
 
 - `BFI_NONS(3)` Linux kernel is entered in ARM's non-secure mode. Set
-  this flag to nonzero to keep CPU in secure mode. Intended for debug mainly.
+  this flag's bit 0 to 1 to keep CPU in secure mode. 
+  Bit 1 forces bkpt just after mode change.
+  Intended for debug mainly.
 
 - `BFI_DTB_ID(4)` Select another DTB. Currently any nonzero value select
   alternative location in MTD device (see `FTD_POS2` in [boot_mp1.c](boot_mp1.c).

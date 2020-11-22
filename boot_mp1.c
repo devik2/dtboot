@@ -219,12 +219,15 @@ void main(const boot_api_context_t *ctx)
 
 	set_tz_sec();
 	stm32mp_init_gic(0);
+	int nons = mp1_mctx.boot_flags[BFI_NONS];
+	if (nons<0) nons = 0;
 	// TODO: following check must be always true for authenticated
 	// image (once implemented) to maintain security
-	if (mp1_mctx.boot_flags[BFI_NONS]<=0 && !prog_x) {
+	if (!(nons & 1) && !prog_x) {
 		call_smc(SMC_NSEC,0,0); // switch to NS state
 		setup_ns_mode();
 	}
+	if (nons & 2) asm("bkpt");
 
 	rcc_to_defaults();	// in case of soft reboots
 	common_gpios_preinit();
