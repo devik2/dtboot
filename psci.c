@@ -1,10 +1,8 @@
 #include <stdint.h>
 #include "xprintf.h"
 #include "system.h"
-#include "stm32mp157axx_cm4.h"
+#include "stm32mp1.h"
 
-#define BOOT_API_A7_CORE0_MAGIC_NUMBER  0xCA7FACE0
-#define BOOT_API_A7_CORE1_MAGIC_NUMBER  0xCA7FACE1
 #define CBAR_MASK                       0xFFFF8000
 #define GIC_DIST_OFFSET         0x1000
 #define GICD_SGIR               0x0f00
@@ -28,7 +26,6 @@ void gicc_disable()
 	ig[0x400] = 0; // GICC_CTLR
 }
 
-
 void stm32mp_init_gic(int cpu2)
 {
 	// need to do in secure state
@@ -43,11 +40,11 @@ void stm32mp_init_gic(int cpu2)
 		// set all irqs as nonsecure
 		for (i = 0; i <= irq_cnt; i++) ig[i] = 0xffffffff;
 	} else {
+		// only local IRQs for second CPU
 		ig[0] = 0xffffffff;
 	}
 	volatile uint32_t *cpui = (void*)(gic_dist_addr + 0x1000);
 	cpui[1] = 0xff; // low prio to allow NS to override it
-	//asm("bkpt");
 }
 
 static void stm32mp_smp_kick_all_cpus()
@@ -68,39 +65,21 @@ void start_cpu2(void *addr)
 	stm32mp_smp_kick_all_cpus();
 }
 
-extern uint32_t sec_boota;
+static void (*sec_boota)();
 void boot_secondary();
-volatile uint32_t cpu2_tgt;
-void park_cpu2()
+void setup_ns_mode();
+void cpu2_entry()
 {
-	cpu2_tgt = 7;
-	while (cpu2_tgt<10);
-	void (*fn)();
-	fn = (void*)cpu2_tgt;
-//	asm("bkpt");
-	fn();
-}
+	stm32mp_init_gic(1);
 
-void prep_cpu2()
-{
-	xprintf("preparing CPU2\n");
-	start_cpu2(&boot_secondary);
-	udelay(1000);
-	xprintf("CPU2 status: %d\n",cpu2_tgt);
-}
+	// init timer freq register, we assume CPU0 is
+	// already done with it
+	volatile uint32_t *STG = (void*)STGENC_BASE;
+	asm ("mcr p15, 0, %0, c14, c0, 0"::"r"(STG[8]));
 
-int boot_sec()
-{
-	return -1;
-	if (!cpu2_tgt) return -1; // unprepared CPU2
-	cpu2_tgt = 0xc0102240;
-	/*
-	uint32_t *pgm = (void*)0xc0004000;
-	pgm[0x5c0] = 0x5c011402;
-	pgm[0xa00] = 0xa0011402;
-	sec_boota = 0xc0102240;
-	*/
-	return 0;
+	call_smc(SMC_NSEC,0,0); // switch to NS state
+	setup_ns_mode();
+	sec_boota();
 }
 
 uint32_t psci_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
@@ -109,9 +88,9 @@ uint32_t psci_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 		return 0x2;
 	}
 	if (cmd == 0x84000003) {
-		return -1;
+		//return -1;
 		xprintf("start cpu %X %X %X\n",a1,a2,a3);
-		sec_boota = a2;
+		sec_boota = (void*)a2;
 		if (a1 != 1) return -2;
 		start_cpu2(&boot_secondary);
 		return 0;

@@ -207,7 +207,7 @@ Load addresses for both kernel and RD are read from uImage header.
 ### driver 'cob,mtdfix'
 
 Fixes size in partition subnode of **fixed-partitions** as referenced
-by `patch-size-to` property. Size if set to flash size minus partition
+by `patch-size-to` property. Size is set to flash size minus partition
 offset minus 8 erase blocks (leaving space for BBT).
 
 ### driver 'mp1,console'

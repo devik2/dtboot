@@ -57,50 +57,52 @@ run_cmn:
 	msr	cpsr,r2
 	ldr	sp, mstk		@ top of stacks for MON
 
+	bl	inv_mem
+	bl	def_sctlr
+	bl	set_sec			@ switch to secure SVC
+	mov	r0, r10
+	bl 	main
+loop:	b loop
+
+	.globl setup_ns_mode
+setup_ns_mode:
+	ldr	r1, =_start
+	mcr	p15, 0, r1, c12, c0, 0	@ non-secure VBAR
+	mov	pc,lr
+set_sec:				@ set security, sp is this CPU mstk
 	mov	r1, #0x3fff
 	mcr	p15, 0, r1, c1, c1, 2	@ enable all CP access in NSACR
-
+	ldr	r1, =_start		@ assume we are in secure mode 
+	mcr	p15, 0, r1, c12, c0, 1	@ write MVBAR
+	mcr	p15, 0, r1, c12, c0, 0	@ secure VBAR
+	mov	r0, sp
+	mov	r3, lr
+	set_mode #0x13			@ SVC mode (secure)
+	sub	sp, r0, #0x400		@ SVC stack
+	mov	pc,r3
+inv_mem:
 	mov	r0, #0			@ set up for MCR
 	mcr	p15, 0, r0, c8, c7, 0	@ invalidate TLBs
 	mcr	p15, 0, r0, c7, c5, 0	@ invalidate icache
 	mcr	p15, 0, r0, c7, c5, 6	@ invalidate BP array
 	mcr     p15, 0, r0, c7, c10, 4	@ DSB
 	mcr     p15, 0, r0, c7, c5, 4	@ ISB
-
-	mrc	p15, 0, r0, c1, c0, 0
+	nop
+	mov	pc,lr
+def_sctlr:
+	mrc	p15, 0, r0, c1, c0, 0	@ SCTLR
 	bic	r0, r0, #0x00002000	@ clear bits 13 (--V-)
 	bic	r0, r0, #0x00000007	@ clear bits 2:0 (-CAM)
 	orr	r0, r0, #0x00000002	@ set bit 1 (--A-) Align
-	orr	r0, r0, #0x00000800	@ set bit 11 (Z---) BTB
-	orr	r0, r0, #0x00001000	@ set bit 12 (I) I-cache
+	orr	r0, r0, #0x00001800	@ set bits (IZ---) BTB,Icache
 	mcr	p15, 0, r0, c1, c0, 0
-
-	bl	set_tz_sec
-	mov	r4, r0			@ remember if NS switch is needed
-	mov	r0, #0
-	bl	stm32mp_init_gic
-
-	mov	r1, #0x31
-	cmp	r4, #0
-	mcrne	p15, 0, r1, c1, c1, 0	@ switch to NS mode after leaving MON
-
-	mov	r0, #0			@ zero virt timer offset, need
- 	mcrrne	p15, 4, r0, r0, c14	@ can be set only when NS=1 TODO
-
-	ldr	r1, =_start		@ assume we are in secure mode 
-	mcr	p15, 0, r1, c12, c0, 1	@ write MVBAR
-	mcr	p15, 0, r1, c12, c0, 0	@ secure VBAR
-	set_mode #0x13			@ SVC mode (nonsecure)
-	mcr	p15, 0, r1, c12, c0, 0	@ insecure VBAR
-	ldr	sp, mstk
-	sub	sp, sp, #0x400		@ SVC stack
-
-	mov	r0, r10
-	bl main
-loop:	b loop
+	mov	pc,lr
 
 smc:	
 	push	{r4,lr}
+	ldr	r4, =0x83000103		@ switch to NS action
+	cmp	r0, r4
+	beq	smc_switch
         mrc     p15, 0, r4, c1, c1, 0
         bic     lr, r4, #1
         mcr     p15, 0, lr, c1, c1, 0	@ Switch to secure
@@ -108,15 +110,22 @@ smc:
 	dsb
 	str	r4, p_scr
 	bl	smc_handler
-        mcr     p15, 0, r4, c1, c1, 0	@ Switch back to orig mode
-	pop	{r4,lr}
+	mcr     p15, 0, r4, c1, c1, 0	@ Switch back to orig mode
+smc_fin:pop	{r4,lr}
 	movs	pc,lr
+smc_switch:
+	mov	r4, #0x31	@ switch to NS mode
+	mcr     p15, 0, r4, c1, c1, 0
+	mov	r0, #0			@ zero virt timer offset, need
+ 	mcrr	p15, 4, r0, r0, c14	@ can be set only when NS=1 
+	b	smc_fin	
 
 call_smc:
 	smc #0
 	mov	pc,lr
 
 	.globl get_SCR,get_CPSR,get_SP,call_smc,get_SCTLR,get_ACTLR,get_SPSR
+	.globl get_VBAR,get_MVBAR
 get_SCTLR:
 	mrc	p15, 0, r0, c1, c0, 0
 	mov	pc, lr
@@ -135,6 +144,12 @@ get_SPSR:
 get_SP:
 	mov	r0, sp
 	mov	pc, lr
+get_VBAR:
+	mrc	p15, 0, r0, c12, c0, 0
+	mov	pc, lr
+get_MVBAR:
+	mrc	p15, 0, r0, c12, c0, 1
+	mov	pc, lr
 	.globl get_arm_time,get_arm_tfreq
 get_arm_time:
 	mrrc 	p15,0,r0,r1,c14
@@ -143,32 +158,20 @@ get_arm_tfreq:
 	mrc	p15,0,r0,c14,c0,0
 	mov	pc, lr
 
-	.globl boot_secondary, sec_boota
-sec_boota:	
-	.word 0
+	.globl boot_secondary
+	.extern cpu2_entry
 boot_secondary:
 	set_mode #0x16			@ MON
 	orr	r2, r2, #0xc0		@ disable FIQ and IRQ
 	msr	cpsr,r2
 	ldr	sp, mstk2		@ top of stacks for MON
 
-	mov	r1, #0x3fff
-	mcr	p15, 0, r1, c1, c1, 2	@ enable all CP access in NSACR
+	bl	inv_mem
+	bl	def_sctlr
+	bl	set_sec			@ switch to secure SVC
 
-	mov	r0, #0			@ set up for MCR
-	mcr	p15, 0, r0, c8, c7, 0	@ invalidate TLBs
-	mcr	p15, 0, r0, c7, c5, 0	@ invalidate icache
-	mcr	p15, 0, r0, c7, c5, 6	@ invalidate BP array
-	mcr     p15, 0, r0, c7, c10, 4	@ DSB
-	mcr     p15, 0, r0, c7, c5, 4	@ ISB
-
-	mrc	p15, 0, r0, c1, c0, 0
-	bic	r0, r0, #0x00002000	@ clear bits 13 (--V-)
-	bic	r0, r0, #0x00000007	@ clear bits 2:0 (-CAM)
-	orr	r0, r0, #0x00000002	@ set bit 1 (--A-) Align
-	orr	r0, r0, #0x00000800	@ set bit 11 (Z---) BTB
-	orr	r0, r0, #0x00001000	@ set bit 12 (I) I-cache
-	mcr	p15, 0, r0, c1, c0, 0
+	ldr	r0, =cpu2_entry
+	bx	r0
 
 	mov	r0, #1
 	bl	stm32mp_init_gic
@@ -181,17 +184,8 @@ boot_secondary:
 	mov	r0, #0			@ zero virt timer offset, need
  	mcrr	p15, 4, r0, r0, c14	@ to be set when NS=1 
 
-	ldr	r1, =_start		@ assume we are in secure mode 
-	mcr	p15, 0, r1, c12, c0, 1	@ write MVBAR
-	mcr	p15, 0, r1, c12, c0, 0	@ secure VBAR
-	set_mode #0x13			@ SVC mode (nonsecure)
-	mcr	p15, 0, r1, c12, c0, 0	@ insecure VBAR
-	ldr	sp, mstk2
-	sub	sp, sp, #0x400		@ SVC stack
-@lp11:	b lp11
-	ldr	r0, sec_boota
+	ldr	r0, =cpu2_entry
 	bx	r0
-	mrs	r0, ELR_hyp
 
 	@ coroutine support
 	.globl coro_switch

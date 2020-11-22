@@ -179,7 +179,7 @@ int mem_test(volatile uint32_t *addr,int mb,uint32_t xor,int verb)
 	return errs;
 }
 
-int ddr_init(int use_slow,int use_ddr3)
+int ddr_init(int use_slow,int use_ddr3,int fast_test)
 {
 	// reset all blocks
 	RCC->DDRITFCR |= RCC_DDRITFCR_DPHYCTLRST|RCC_DDRITFCR_DPHYRST|
@@ -253,7 +253,7 @@ int ddr_init(int use_slow,int use_ddr3)
 		mem_test((void*)0xc0000000,8,0,10);
 	}
 	int mb = 0;
-	if (!mem_test((void*)0xc0000000,1,0,0x10a)) 
+	if (fast_test || !mem_test((void*)0xc0000000,1,0,0x10a)) 
 		mb = mem_meas((void*)0xc0000000,512);
 	xprintf("[%d] detected %d MB DDR\n",get_ms_precise(),mb);
 	return mb;

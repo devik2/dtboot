@@ -8,16 +8,17 @@
 
 #define SMC_SET_FREQ  0x83000101
 #define SMC_DUMP_INFO 0x83000102
+#define SMC_NSEC 0x83000103
 uint32_t call_smc(uint32_t cmd,uint32_t a1,uint32_t a2);
 	
 #define NSEC 1
 uint64_t get_arm_time();
 uint32_t get_arm_tfreq();
 extern uint8_t ms_freq_sh;
-int ddr_init(int use_slow,int use_ddr3);
+int ddr_init(int use_slow,int use_ddr3,int fast_test);
 int set_pll(int n,int fi,int m,int mul,int dp,int dq,int dr);
 void stgen_setup(int mhz,int use_hse,int keep);
-int set_tz_sec();
+void set_tz_sec();
 
 void i2c_setup(I2C_TypeDef *I2C);
 int i2c_wr(I2C_TypeDef *I2C,int addr,const char *data,int len,int aut);

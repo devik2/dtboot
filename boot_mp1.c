@@ -30,8 +30,6 @@
 
 struct stm32mp1_mctx mp1_mctx;
 
-void stm32mp_init_gic();
-
 static void mp1_minimal_ddr_clock()
 {
 	RCC->RDLSICR = 1;	// LSI on
@@ -79,6 +77,8 @@ int get_SP();
 int get_SCR();
 int get_ACTLR();
 int get_SCTLR();
+int get_VBAR();
+int get_MVBAR();
 extern int p_scr;
 uint32_t psci_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3);
 uint32_t smc_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
@@ -93,6 +93,7 @@ uint32_t smc_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 		dump_reg("ACTLR",get_ACTLR(),_bn_actlr);
 		dump_reg("SCTLR",get_SCTLR(),_bn_sctlr);
 		dump_reg("SCR",p_scr,_bn_scr);
+		xprintf("VBAR:%X MVBAR:%X\n",get_VBAR(),get_MVBAR());
 		return 0;
 	}
 	if (cmd == SMC_SET_FREQ) {
@@ -169,11 +170,11 @@ static void fix_qspi_divider(int min)
 	qspi_set_divider(qspi_div);
 }
 
-static void ddr_init_local()
+static void ddr_init_local(int fast)
 {
 	gpio_setup_one(PIN_DDR_EN,PM_OUT|PM_DFLT(1),0);
 	udelay(10000);
-	mctx->ddr_mb = ddr_init(0,1); 
+	mctx->ddr_mb = ddr_init(0,1,fast); 
 	xprintf("[%d] DDR done. (%X,%dMB)\n",get_ms_precise(),
 			GPIOZ->ODR,mctx->ddr_mb);
 }
@@ -185,13 +186,17 @@ static void run_jtag_prog(struct mtd_dev_t *mtd)
 {
 	prog_dev = mtd;
 	mp1_minimal_ddr_clock();
-	ddr_init_local();
+	ddr_init_local(1);
 	qspi_set_divider(10);
 	xprintf("MTD programming ready\n");
 	console_sync();
 	asm("bkpt");
 }
 
+void stm32mp_init_gic(int cpu2);
+void setup_ns_mode();
+
+// we are entering in secure SVC mode
 void main(const boot_api_context_t *ctx)
 {
 	RCC->MP_AHB4ENSETR = RCC_MC_AHB4ENSETR_GPIOAEN|RCC_MC_AHB4ENSETR_GPIOBEN|
@@ -204,7 +209,7 @@ void main(const boot_api_context_t *ctx)
 	RCC->MP_APB5ENSETR = RCC_MC_APB5ENSETR_STGENEN;
 	RCC->MP_APB3ENSETR = RCC_MC_APB3ENSETR_SYSCFGEN;
 	memset(_bss_start,0,_bss_end-_bss_start);
-	coro_init();
+
 	mctx = &mp1_mctx.ctx;
 	// ack supervisor MCU
 	gpio_setup_one(PIN2_ACK,PM_OUT|PM_DFLT(0),0);
@@ -212,20 +217,32 @@ void main(const boot_api_context_t *ctx)
 	// set by debugger or OS to modify boot behaviour
 	mp1_read_boot_flags(&mp1_mctx);
 
+	set_tz_sec();
+	stm32mp_init_gic(0);
+	// TODO: following check must be always true for authenticated
+	// image (once implemented) to maintain security
+	if (mp1_mctx.boot_flags[BFI_NONS]<=0 && !prog_x) {
+		call_smc(SMC_NSEC,0,0); // switch to NS state
+		setup_ns_mode();
+	}
+
 	rcc_to_defaults();	// in case of soft reboots
 	common_gpios_preinit();
 	stgen_setup(64000,0,0);	// preliminary timer for delays
 	mp1_initial_console();
 	mp1_show_boot_flags();
 
+	call_smc(SMC_DUMP_INFO,0,0);
+
+	coro_init();
 	// init MTD to get FDT
 	struct mtd_dev_t mtd;
 	if (mtd_detect_qspi(&mtd,0,0)) 
 		panic("can't init MTD\n");
 	mctx->mtd = &mtd;
 	
-	xprintf("MTD: %s %s\n",
-		MTD_ISNAND(mtd.chip) ? "NAND":"NOR", mtd.chip->name);
+	xprintf("MTD: %s %s, VBAR=0x%X\n",
+		MTD_ISNAND(mtd.chip) ? "NAND":"NOR", mtd.chip->name, get_VBAR());
 
 	if (prog_x) run_jtag_prog(&mtd);
 
@@ -258,7 +275,7 @@ void plat_patch_linux_dtb(struct boot_param_header *fdt,uint32_t *lnx)
 static int run_ddr(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
-	ddr_init_local();
+	ddr_init_local(0);
 	uint32_t ph = 0;
 	fetch_fdt_ints(fdt,root,"patch-size-to",1,1,&ph);
 	if (ph) do {

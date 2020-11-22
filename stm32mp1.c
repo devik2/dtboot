@@ -231,18 +231,12 @@ uint32_t crc32 (uint32_t crc, const void *p, uint32_t len)
 	return co;
 }
 
-extern struct stm32mp1_mctx mp1_mctx; // TODO
-extern uint32_t prog_x; // to detect prog mode
-// returns nonzero if we need switch to NS
-int set_tz_sec() 
+// allow port Z and DDR be accessed from nonsec mode
+void set_tz_sec() 
 {
-	// we are called before main, preread flags
-	mp1_read_boot_flags(&mp1_mctx);
-
 	RCC->MP_AHB5ENSETR = RCC_MC_AHB5ENSETR_GPIOZEN;
 	(void)RCC->MP_AHB5ENSETR;	// dummy read
-	GPIOZ->SECR = 0;		// DDR PWR as unsecure
-	//if (!(bf & BOOTF_NONS)) asm("bkpt");
+	GPIOZ->SECR = 0;		// port Z as unsecure
 
 	RCC->MP_APB5ENSETR = RCC_MC_APB5ENSETR_TZPCEN|RCC_MC_APB5ENSETR_TZC1EN|
 		RCC_MC_APB5ENSETR_TZC2EN;
@@ -252,8 +246,6 @@ int set_tz_sec()
 	TZC->REG_ID_ACCESSO =  0xffffffff;
 	TZC->REG_ATTRIBUTESO = 0xc0000003;
 	TZC->GATE_KEEPER = 3;
-	if (prog_x) return 0;
-	return ((struct stm32mp1_mctx*)mctx)->boot_flags[BFI_NONS]>0 ? 0 : 1;
 }
 
 static int mp1_check_flags(const uint8_t *flg)
