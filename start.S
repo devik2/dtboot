@@ -116,7 +116,7 @@ smc_fin:pop	{r4,lr}
 smc_switch:
 	mov	r4, #0x31	@ switch to NS mode
 	mcr     p15, 0, r4, c1, c1, 0
-	mov	r0, #0			@ zero virt timer offset, need
+	mov	r0, #0			@ zero virt timer offset,
  	mcrr	p15, 4, r0, r0, c14	@ can be set only when NS=1 
 	b	smc_fin	
 
@@ -169,20 +169,6 @@ boot_secondary:
 	bl	inv_mem
 	bl	def_sctlr
 	bl	set_sec			@ switch to secure SVC
-
-	ldr	r0, =cpu2_entry
-	bx	r0
-
-	mov	r0, #1
-	bl	stm32mp_init_gic
-
-	mov	r1, #0x31
-	mcr	p15, 0, r1, c1, c1, 0	@ switch to NS mode after leaving MON
-
-	ldr	r1,=#24000000
-	mcr	p15, 0, r1, c14, c0, 0	@ timer freq
-	mov	r0, #0			@ zero virt timer offset, need
- 	mcrr	p15, 4, r0, r0, c14	@ to be set when NS=1 
 
 	ldr	r0, =cpu2_entry
 	bx	r0
