@@ -133,7 +133,9 @@ void stgen_setup(int khz,int use_hse,int keep)
 	STG[2] = x; STG[3] = 0;
 	STG[8] = hz;
 #if NSEC
-	if (((struct stm32mp1_mctx*)mctx)->boot_flags[BFI_NONS]<=0)
+	int nons = ((struct stm32mp1_mctx*)mctx)->boot_flags[BFI_NONS];
+	if (nons<0) nons = 0;
+	if (!(nons & 1))
 		call_smc(SMC_SET_FREQ,hz,0);
 	else
 #endif

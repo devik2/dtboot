@@ -213,7 +213,7 @@ void main(const boot_api_context_t *ctx)
 		call_smc(SMC_NSEC,0,0); // switch to NS state
 		setup_ns_mode();
 	}
-	if (nons & 2) asm("bkpt");
+	if (nons & 2 && !prog_x) asm("bkpt");
 
 	rcc_to_defaults();	// in case of soft reboots
 	common_gpios_preinit();
