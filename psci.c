@@ -82,6 +82,11 @@ void cpu2_entry()
 	sec_boota();
 }
 
+__attribute__ ((weak)) int power_off() 
+{
+	return -1;
+}
+
 uint32_t psci_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 {
 	if (cmd == 0x84000000) {
@@ -96,8 +101,7 @@ uint32_t psci_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 		return 0;
 	}
 	if (cmd == 0x84000008) { // off
-		// XXX if (mach->off) mach->off();
-		return -1;
+		return power_off();
 	}
 	if (cmd == 0x84000009) { // reset
 		// XXX if (mach->reset) mach->reset();

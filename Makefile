@@ -10,7 +10,8 @@ LDFLAGS=-Map=map.txt -static -g -L$(dir $(LIBGCC)) -L$(NLIB) -lc -lgcc
 OCOPY=$(CROSS_COMPILE)objcopy
 LD=$(CROSS_COMPILE)ld --no-enum-size-warning
 SRC=qspi_mp1.c uimage.c fdt.c xprintf.c psci.c coro.c console_stm32mp1.c mtd.c mtd_prog.c stm32mp1.c stm32mp1_ddr.c ca7.c smi.c modules.c linux.c stm32mp1_dsi.c
-#MACH=eval1.c msw6a.c portable.c dsi_base.c luda.c tester.c
+
+-include mach/Makefile
 
 .SECONDARY:
 
@@ -27,16 +28,7 @@ all: boot_mp1.stm32
 %.stm32: %.bin
 	$(MKIMAGE) -T stm32image -a 0x2ffc2500 -d $? $@
 
-logo_black_bg.zz: logo_black_bg.png
-	python cnv_logo.py
-
-%.o: %.zz
-	$(OCOPY) -I binary -O elf32-littlearm -B arm --rename-section .data=.rodata $^ $@
-
-boot_mp1.out: ram.lds start.o boot_mp1.o $(patsubst %.c,%.o,$(SRC) $(MACH)) 
-	$(LD) -o $@ -T $^ $(LDFLAGS)
-	size $@
-boot_som.out: ram.lds start.o boot_som.o $(patsubst %.c,%.o,$(SRC) $(MACH)) logo_black_bg.o
+boot_mp1.out: ram.lds start.o boot_mp1.o $(patsubst %.c,%.o,$(SRC)) 
 	$(LD) -o $@ -T $^ $(LDFLAGS)
 	size $@
 

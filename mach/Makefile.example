@@ -1,0 +1,7 @@
+# makefile for app/company specific boot loaders
+
+all: mach/boot_baz.stm32
+
+mach/boot_baz.out: ram.lds start.o boot_mp1.o $(patsubst %.c,%.o,$(SRC)) mach/baz_ops.o
+	$(LD) -o $@ -T $^ $(LDFLAGS)
+	size $@
