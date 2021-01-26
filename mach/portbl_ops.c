@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdint.h>
 #include "stm32mp1.h"
+#include "stm32mp1_ltdc.h"
 #include "xprintf.h"
 #include "coro.h"
 #include "gpio.h"
@@ -51,7 +52,6 @@ static void set_disp_i2c_rst(int x)
 	uint8_t buf[4] = { 0,x?0x20:0,0xdf };
 	int r = i2c_wr(I2C2,0x21,buf,2,1);
 	xprintf("rst %d i2c wr: %d\n",x,r);
-	//i2c_wr(I2C2,0x21,"\x01\xdf",2,1);
 }
 
 // override PSCI power-off handling
@@ -69,7 +69,6 @@ int dsi_disp_reset(int rstn)
 	}
 	if (!sx_ok) return -1;
 	set_disp_i2c_rst(!rstn);
-	//asm("bkpt");
 	return 0;
 }
 
@@ -147,9 +146,80 @@ static int run_portbl(struct module_desc_t *dsc,struct boot_param_header *fdt,
 {
 	enable_power_n(NULL);
 	eth_phy_init(NULL);
+	return 0;
+}
+
+struct simple_image_t {
+	uint16_t w,h,pcnt,tmp;
+	uint16_t palsz,pixsz;
+} static img;
+
+long tinflate(const void *compressed_data, long compressed_size,
+              void *output_buffer, long output_size, unsigned long *crc_ret);
+extern char _binary_mach_logo_black_bg_zz_start[];
+extern char _binary_mach_logo_black_bg_zz_size[];
+
+// decode logo into buf of size max_fb, fill img structure, 
+// return 0 if ok; img->w is 0 for error
+static int decode_logo(struct simple_image_t *img,void *buf,int max_fb)
+{
+	// binary format is 16bit: W,H,pal_size,0 then compressed
+	// palette 3B per item, then pixels (8B aligned)
+	// palette is guaranted to have black at index 0
+	uint8_t *p = _binary_mach_logo_black_bg_zz_start;
+	int rlen = (int)_binary_mach_logo_black_bg_zz_size;
+
+	struct {
+		uint16_t w,h,pcnt,tmp;
+	} hdr;
+	memcpy(img,p,8); p += 8;
+	img->palsz = (img->pcnt*3 + 7) & 0xff8;
+	img->pixsz = img->h * img->w;
+
+	int sz = tinflate(p,rlen-sizeof(hdr), buf, max_fb, NULL);
+	if (sz < img->pixsz + img->palsz) {
+		xprintf("can't decode logo image: %d\n",sz);
+		img->w = 0; // mark error
+		return -1;
+	}
+	xprintf("[%d] logo decoded, bytes %d\n",get_ms_precise(),sz);
+	return 0;
+}
+
+static void show_logo(char *fba)
+{
+	if (!img.w) return;
+
+	// move image to the center
+	int i;
+	uint8_t *p = fba + img.palsz;
+	uint8_t *d = fba + (320-img.w)/2 + (320-img.h)/2*320;
+	for (i=0;i<img.h;i++) {
+		memcpy(d,p,img.w); p += img.w; d += 320;
+	}
+	p = fba;
+	for (i=0;i<img.pcnt;i++) { // palette
+		int j = i<<24; memcpy(&j,p,3); p += 3;
+		LTDC_Layer2->CLUTWR = j;
+	}
+	memset(fba,0,img.palsz+img.pixsz); // clear old image
+	LTDC->SRCR = LTDC_SRCR_VBR; // activate layer
+	xprintf("[%d] logo done\n",get_ms_precise());
+}
+
+extern struct fbuf_t framebuf;
+static int run_logo(struct module_desc_t *dsc,struct boot_param_header *fdt,
+		uint32_t *root)
+{
+	decode_logo(&img,framebuf.fba,framebuf.bytes);
+	show_logo(framebuf.fba);
+	return 0;
 }
 
 DECLARE_MOD(eax_portbl) {
 	.name = "eax,portable_n", .run = run_portbl
 };
 
+DECLARE_MOD(eax_portbl_logo) {
+	.name = "eax,portable_logo", .run = run_logo
+};
