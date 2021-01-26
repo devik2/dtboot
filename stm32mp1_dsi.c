@@ -10,10 +10,7 @@
 #include "gpio.h"
 
 static struct disp_timing dsi_timing; 
-struct fbuf_t {
-	uint16_t *fba;
-	uint32_t bytes;
-} static fbi;
+struct fbuf_t framebuf;
 
 #define printf xprintf
 
@@ -533,18 +530,20 @@ static int run_dsi(struct module_desc_t *dsc,struct boot_param_header *fdt,
 
 	dsi_start_pll(dsi_timing.dsi_mhz*1000);
 
-	fbi.fba = NULL; 
-	fetch_fdt_ints(fdt,root,"fb-info",2,2,(uint32_t*)&fbi);
+	framebuf.fba = NULL; 
+	fetch_fdt_ints(fdt,root,"fb-info",2,2,(uint32_t*)&framebuf);
 
-	if (fbi.fba && fbi.bytes) 
-		memset(fbi.fba,0x10,fbi.bytes); // clear framebuffer
+	if (framebuf.fba && framebuf.bytes) 
+		memset(framebuf.fba,0x10,framebuf.bytes); // clear framebuffer
 	dsi_disp_reset(1);
 	udelay(10000);
 	dsi_disp_reset(0);
 	udelay(10000);
-	init_dsi(&dsi_timing,(uint32_t)fbi.fba);
-	ltdc_layer_setup(1,&dsi_timing,5,(uint32_t)fbi.fba,1,1,318,318);
-	//LTDC->SRCR = LTDC_SRCR_VBR;
+	init_dsi(&dsi_timing,(uint32_t)framebuf.fba);
+	ltdc_layer_setup(2,&dsi_timing,5,(uint32_t)framebuf.fba,1,1,318,318);
+
+	// don't activate yet
+	//LTDC->SRCR = LTDC_SRCR_VBR; 
 
 	//asm("bkpt");
 	return 0;

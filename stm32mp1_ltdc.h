@@ -9,6 +9,11 @@ struct disp_timing {
 	uint16_t dsi_mhz;
 };
 
+struct fbuf_t {
+	uint8_t *fba;
+	uint32_t bytes;
+};
+
 void ltdc_layer_setup(int idx,const struct disp_timing *tm,
 		uint32_t pfcr,uint32_t fba,
 		unsigned xoff,unsigned yoff,unsigned xsz,unsigned ysz);
