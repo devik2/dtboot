@@ -24,7 +24,7 @@ void i2c_setup(I2C_TypeDef *I2C);
 int i2c_wr(I2C_TypeDef *I2C,int addr,const char *data,int len,int aut);
 int i2c_rd(I2C_TypeDef *I2C,int addr,char *buf,int len);
 
-// Boot flags: each can have vlue 0..15 of undefined (-1)
+// Boot flags: each can have value 0..15 or undefined (-1)
 // these can be hardcoded in bootloader binary or overriden
 // by TEMP registers.
 // Each flag is encoded as 8 bits: MSB:{BFI} LSB:{VAL} and

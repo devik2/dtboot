@@ -84,7 +84,7 @@ void cpu2_entry()
 
 __attribute__ ((weak)) int power_off() 
 {
-	return -1;
+	return -1; // not-implemented
 }
 
 uint32_t psci_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)

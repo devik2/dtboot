@@ -501,35 +501,16 @@ void init_dsi(const struct disp_timing *tm,uint32_t fba)
 	DSI_ShortWrite(DSI, 0, DSI_DCS_SHORT_PKT_WRITE_P0, 0x29, 0);
 }
 
-void aux_entry()
+// called with -1 to init I/O, returns <0 for error
+__attribute__((weak)) int dsi_disp_reset(int rstn)
 {
-#if 0
-	DSI_ShortWrite(DSI, 0, DSI_DCS_SHORT_PKT_WRITE_P0, 0x28, 0);
-	udelay(20000);
-	DSI_ShortWrite(DSI, 0, DSI_DCS_SHORT_PKT_WRITE_P0, 0x10, 0);
-	udelay(120000);
-	asm("bkpt");
-	const struct disp_timing *tm = dtim_tab;
-	dtim_set_ltdc(tm);
-	dtim_set_dsi(tm);
-	ltdc_layer_setup(LTDC_Layer2,tm,5,0x2ffce000,0,0,318,320);
-	LTDC->SRCR = LTDC_SRCR_VBR;
-	dtim_dump(tm);
-#endif
-	uint8_t *fb = (void*)0x2ffce000;
-	LTDC_Layer2->CLUTWR = 0xf4000000;
-	LTDC_Layer2->CLUTWR = 0xf5ffffff;
-	memset(fb,0xf4,320*320);
-	int i;
-	for (i=0;i<320;i++) {
-		fb[i] = fb[320*319+i] = 0xf5;
-		fb[i] = fb[320*200+i] = 0xf5;
-		fb[320*i] = fb[320*i+319] = 0xf5;
+#define LBR_DRST PM_C(9)
+	if (rstn<0) {
+		gpio_setup_one(LBR_DRST,PM_OUT|PM_DFLT(1),0);
+		return 0;
 	}
-	memset(fb+100*320,0xf5,8*320);
-
-	init_dsi(0,0x2ffe0000);
-	asm("bkpt");
+	gpio_out(LBR_DRST,!rstn);
+	return 0;
 }
 
 // TODO: currently this is setup for 320x320 1.8" wristwatch DSI display
@@ -541,9 +522,15 @@ static int run_dsi(struct module_desc_t *dsc,struct boot_param_header *fdt,
 	int i;
 #define TIM_SZ 10
 	uint32_t ph[TIM_SZ];
-	if (fetch_fdt_ints(fdt,root,"dsi-timing",10,10,ph)!=TIM_SZ)
+	if (fetch_fdt_ints(fdt,root,"dsi-timing",TIM_SZ,TIM_SZ,ph)!=TIM_SZ)
 		return -1;
 	for (i=0;i<TIM_SZ;i++) dti[i] = ph[i];
+
+	if (dsi_disp_reset(-1)<0) {
+		printf("can't init display reset line\r\n");
+		return -1;
+	}
+
 	dsi_start_pll(dsi_timing.dsi_mhz*1000);
 
 	fbi.fba = NULL; 
@@ -551,13 +538,12 @@ static int run_dsi(struct module_desc_t *dsc,struct boot_param_header *fdt,
 
 	if (fbi.fba && fbi.bytes) 
 		memset(fbi.fba,0x10,fbi.bytes); // clear framebuffer
-#define LBR_DRST PM_C(9)
-	gpio_setup_one(LBR_DRST,PM_OUT|PM_DFLT(0),0);
+	dsi_disp_reset(1);
 	udelay(10000);
-	gpio_out(LBR_DRST,1);
+	dsi_disp_reset(0);
 	udelay(10000);
 	init_dsi(&dsi_timing,(uint32_t)fbi.fba);
-	ltdc_layer_setup(1,&dsi_timing,2,(uint32_t)fbi.fba,1,1,318,318);
+	ltdc_layer_setup(1,&dsi_timing,5,(uint32_t)fbi.fba,1,1,318,318);
 	//LTDC->SRCR = LTDC_SRCR_VBR;
 
 	//asm("bkpt");
