@@ -176,6 +176,7 @@ Let's look at simple example:
 		// these are overriden by bootloader
                 enter-shell = <0>;
                 boot-flags = <0 0 0 0>;
+		psci-cpu-on = <1>;
 
 		ddr@60 {
                         compatible = "mp1,ddr3";
@@ -191,6 +192,9 @@ Let's look at simple example:
 
 `enter-shell` and `boot-flags` are placeholders - DTBoot fills them
 and linux userspace can read them in `/sys/firmware/devicetree`.
+
+`psci-cpu-on` enables or disables (default) ability to power secondary
+CPU on. 
 
 `ddr@60` block uses `mp1,ddr3` driver contained in DTBoot and instructs
 it to patch autodetected DDR size to `reg` of `main_mem`.

@@ -7,9 +7,10 @@ _start:
 	b loop
 	b loop
 	b loop
+	b irq
 	bkpt
-	bkpt
-	.extern prog_ext,aux_entry
+	.extern prog_ext,aux_entry, irq_handler
+	.weak irq_handler
 	.extern smc_handler, set_tz_sec, stm32mp_init_gic
 	.weak smc_handler, set_tz_sec, stm32mp_init_gic, aux_entry
 prog_a: .word 0
@@ -98,6 +99,11 @@ def_sctlr:
 	mcr	p15, 0, r0, c1, c0, 0
 	mov	pc,lr
 
+irq:
+	push	{r0-r3,r12,lr}
+	bl	irq_handler
+	pop	{r0-r3,r12,lr}
+	subs    pc,lr,#4
 smc:	
 	push	{r4,lr}
 	ldr	r4, =0x83000103		@ switch to NS action
