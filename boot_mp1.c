@@ -225,12 +225,12 @@ void main(const boot_api_context_t *ctx)
 	rcc_to_defaults();	// in case of soft reboots
 	common_gpios_preinit();
 	stgen_setup(64000,0,0);	// preliminary timer for delays
+	coro_init();  // udelay becomes available
 	mp1_initial_console();
 	mp1_show_boot_flags();
 
 	//call_smc(SMC_DUMP_INFO,0,0);
 
-	coro_init();
 	// init MTD to get FDT
 	struct mtd_dev_t mtd;
 	if (mtd_detect_qspi(&mtd,0,0)) 
