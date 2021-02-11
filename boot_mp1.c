@@ -187,6 +187,7 @@ static void run_jtag_prog(struct mtd_dev_t *mtd)
 
 void stm32mp_init_gic(int cpu2);
 void setup_ns_mode();
+void psci_setup(struct boot_param_header *fdt,uint32_t *root);
 
 // we are entering in secure SVC mode
 void main(const boot_api_context_t *ctx)
@@ -246,6 +247,7 @@ void main(const boot_api_context_t *ctx)
 	int alt = mp1_mctx.boot_flags[BFI_DTB_ID]>0 ? 1:0;
 	uint32_t *fdt_cob = prescan_fdt(&mtd,alt);
 
+	psci_setup(mctx->fdt,fdt_cob);
 	console_sync();
 
 	// rest of init is controled by DT
