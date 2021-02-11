@@ -16,6 +16,8 @@
 #define PINn_SX_RST PM_G(13)
 #define PIN_ETH_RST PM_B(15)
 #define PINn_CK32 PM_C(6)
+#define PINo_EMMC_ON PM_D(5)
+#define PINo_EMMCIO_ON PM_A(15)
 
 #define FB_ADDR 0x2ffe0000	// palleted FB for logo & live data
 
@@ -54,9 +56,104 @@ static void set_disp_i2c_rst(int x)
 	xprintf("rst %d i2c wr: %d\n",x,r);
 }
 
+static void dsi_stop()
+{
+	soft_dsi_stop();
+//	asm("bkpt");
+	set_disp_i2c_rst(0);
+}
+
+// implemented in revO
+static void disable_emmc_power()
+{
+	gpio_out(PINo_EMMC_ON,0);
+	udelay(100);
+	gpio_out(PINo_EMMCIO_ON,0);
+}
+
+static void disable_power_n()
+{
+	dsi_stop(); // also reset display early
+	disable_emmc_power();
+	gpio_out(PINn_18_DISP,0);
+	gpio_out(PINn_SX_RST,0);
+	udelay(5000);
+	gpio_out(PIN_RUN_ON,0);
+	gpio_out(PINn_50V_ON,0);
+}
+
+static void regain_mpu_control()
+{
+	// re-enable needed clocks (linux might have disabled them)
+	RCC->MP_APB1ENSETR = RCC_MC_APB1ENSETR_I2C2EN;
+	RCC->MP_AHB4ENSETR = RCC_MC_AHB4ENSETR_GPIOAEN|RCC_MC_AHB4ENSETR_GPIOBEN|
+		RCC_MC_AHB4ENSETR_GPIOCEN|RCC_MC_AHB4ENSETR_GPIODEN|
+		RCC_MC_AHB4ENSETR_GPIOEEN|RCC_MC_AHB4ENSETR_GPIOFEN|
+		RCC_MC_AHB4ENSETR_GPIOGEN|RCC_MC_AHB4ENSETR_GPIOHEN|
+		RCC_MC_AHB4ENSETR_GPIOIEN;
+	RCC->MP_APB4ENSETR = RCC_MC_APB4ENSETR_DSIEN;
+
+	i2c_setup(I2C2); // reinit - take control from linux
+}
+
+// override PSCI power-off handling, mainly to supress
+// display glitch
+void reset_hook()
+{
+	regain_mpu_control();
+	disable_power_n();	// proper off sequencing
+}
+
+void gicc_disable();
+
 // override PSCI power-off handling
 int power_off() 
 {
+	const int wdg = 0;	// start wdt to wake us (for debug)
+
+	// make sure interrupt doesn't mess with our sleep
+	gicc_disable();
+	regain_mpu_control();
+	if (wdg) RCC->MP_APB5ENSETR = RCC_MP_APB5ENSETR_IWDG1APBEN;
+
+	if (0) // doesn't shut off completely in DBG mode
+		DBGMCU->CR = DBGMCU_CR_DBG_STANDBY|DBGMCU_CR_DBG_STOP;
+	else
+		DBGMCU->CR = 0;
+	if (wdg) {
+		IWDG1->KR = 0xcccc;
+		IWDG1->KR = 0x5555;
+		IWDG1->RLR = 32*2; // 1sec
+		udelay(100);
+		IWDG1->KR = 0xaaaa;
+	}
+	disable_power_n();
+
+	RCC->MP_GCR = 0;	// MCU in HOLD_BOOT
+	RCC->MP_GRSTCSETR = RCC_MP_GRSTCSETR_MCURST;
+
+	// Note: standby is not working with SMP when second CPU is
+	// in WFE (in arch/arm/kernel/smp.c). Actual workaround
+	// is to use echo 0 > /sys/devices/system/cpu/cpu1/online and
+	// use RCC_MP_GRSTCSETR_MPUP1RST.
+	// Also note that RCC_MP_GRSTCSETR_MPUP1RST can't be used
+	// alone in this function because real reset is applied only
+	// after subsequent WFI. devik
+
+	// KEY_ON = PI11/WKUP_5
+	PWR->WKUPCR = PWR_WKUPCR_WKUPP_5	// negative polarity
+		| 0x3f; 			// clear all wkup pins
+	PWR->MPUWKUPENR = PWR_MPUWKUPENR_WKUPEN_5;
+
+	// setup STANDBY request
+	PWR->MCUCR = PWR->MPUCR = PWR_MPUCR_PDDS;
+	RCC->MP_SREQSETR = RCC_MP_SREQSETR_STPREQ_P0|RCC_MP_SREQSETR_STPREQ_P1;
+
+	xprintf("WFI %X %X %X\n",DBGMCU->CR,PWR->MPUCR,PWR->MCUCR);
+	udelay(100000);
+	__WFI();
+	xprintf("WFI done %X %X %X\n",DBGMCU->CR,PWR->MPUCR,PWR->MCUCR);
+	asm("bkpt");
 	return 0;
 }
 
@@ -88,7 +185,7 @@ static void gen_32k_tim8_1()
 static void enable_power_n(void *arg)
 {
 	const gport_t outs[] = { PINn_50V_ON,PIN_RUN_ON, PIN_ETH_RST,PINn_18_DISP,
-		PINn_SX_RST, 0 };
+		PINn_SX_RST,PINo_EMMCIO_ON,PINo_EMMC_ON, 0 };
 
 	gpio_setup_same(outs,PM_OUT|PM_DFLT(0),0);
 	udelay(5000);	// power off briefly
@@ -124,21 +221,6 @@ static void eth_phy_init(void *arg)
 	xprintf("PHY ID: %X\n",id);
 
 	coro_done();
-}
-
-static void dsi_stop()
-{
-	set_disp_i2c_rst(0);
-}
-
-static void disable_power_n()
-{
-	dsi_stop();
-	gpio_out(PINn_18_DISP,0);
-	gpio_out(PINn_SX_RST,0);
-	udelay(5000);
-	gpio_out(PIN_RUN_ON,0);
-	gpio_out(PINn_50V_ON,0);
 }
 
 static int run_portbl(struct module_desc_t *dsc,struct boot_param_header *fdt,
@@ -211,6 +293,10 @@ extern struct fbuf_t framebuf;
 static int run_logo(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
+	if (!framebuf.fba || !framebuf.bytes) {
+		xprintf("logo: ERROR: bad framebuffer\n");
+		return -1;
+	}
 	decode_logo(&img,framebuf.fba,framebuf.bytes);
 	show_logo(framebuf.fba);
 	return 0;
