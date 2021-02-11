@@ -18,19 +18,8 @@ static void start_linux(uint32_t start,uint32_t dtb)
                 "bx  r3\n.ltorg"::"r"(0xffffffff),
 			"m"(dtb),"m"(start):"r1","r2","r3" );
 }
-#if 0
-TODO
-static void set_timer()
-{
-	RCC->MP_APB1ENSETR = RCC_MC_APB1ENSETR_TIM2EN;
-	TIM2->PSC = 133-1; // us
-	TIM2->CNT = 0;
-	TIM2->ARR = 0xffffffff;
-	TIM2->CCR1 = 500000;
-	TIM2->DIER = TIM_DIER_CC1IE; // int 28
-	TIM2->CR1 = TIM_CR1_CEN;
-}
-#endif
+
+void linux_enter_hook();
 static int run_ldlinux(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
@@ -71,6 +60,7 @@ static int run_ldlinux(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		}
 	}
 	console_stop_buf();
+	linux_enter_hook();
 	//gpio_out(PM_A(8),1);
 	start_linux(kernel,(int)mctx->fdt_ddr);
 }

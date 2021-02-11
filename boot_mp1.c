@@ -125,6 +125,12 @@ static void common_gpios_preinit()
 	gpio_setup_one(PIN_QCLK_EN, PM_IN|PM_PU,0);
 }
 
+void linux_enter_hook()
+{
+	// turn red led off (boot done)
+	gpio_setup_one(PIN2_LED2, PM_OUT|PM_DFLT(1),0);
+}
+
 // MP1 starts on HSI, prepare main console on some default
 // pins. It will be replaced once HSE and DT is available
 static void mp1_initial_console()
