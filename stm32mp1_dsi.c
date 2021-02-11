@@ -122,7 +122,7 @@ int DSI_LongWrite(DSI_TypeDef *DSIx,
 }
 
 int _dm;
-void test_dsi()
+static void test_dsi()
 {
 	GPIOD->BSRR = 1<<3;
 	DSI_ShortWrite(DSI, 0, DSI_DCS_SHORT_PKT_WRITE_P0, _dm?0x20:0x21, 0);
@@ -131,13 +131,13 @@ void test_dsi()
 	asm("bkpt");
 }
 
-void stop_dsi()
+void soft_dsi_stop()
 {
-  DSI_ShortWrite(DSI, 0, DSI_DCS_SHORT_PKT_WRITE_P0, 0x28, 0);
-  udelay(20000);
-  DSI_ShortWrite(DSI, 0, DSI_DCS_SHORT_PKT_WRITE_P0, 0x10, 0);
-  udelay(120000);
-  RCC->APB4RSTSETR = RCC_APB4RSTSETR_LTDCRST|RCC_APB4RSTSETR_DSIRST;
+	DSI_ShortWrite(DSI, 0, DSI_DCS_SHORT_PKT_WRITE_P0, 0x28, 0);
+	udelay(20000);
+	DSI_ShortWrite(DSI, 0, DSI_DCS_SHORT_PKT_WRITE_P0, 0x10, 0);
+	udelay(120000);
+	RCC->APB4RSTSETR = RCC_APB4RSTSETR_LTDCRST|RCC_APB4RSTSETR_DSIRST;
 }
 
 static void check_err(const char *s)
@@ -468,18 +468,17 @@ void presetup_ltdc(const struct disp_timing *tm)
 	fix_ltdc_pll(tm->pix_khz);
 }
 
-void ltdc_start()
+static void ltdc_start(uint32_t bgclr)
 {
 	LTDC->GCR |= LTDC_GCR_LTDCEN;
 
 	//LTDC->IER = LTDC_IER_RRIE|LTDC_IER_TERRIE|LTDC_IER_FUIE|LTDC_IER_LIE;
 	LTDC->LIPCR = 100;
 	LTDC->SRCR = LTDC_SRCR_IMR;
-	LTDC->BCCR = 0;
-	LTDC->BCCR = 0xff00ff;
+	LTDC->BCCR = bgclr;
 }
 
-void init_dsi(const struct disp_timing *tm,uint32_t fba)
+void init_dsi(const struct disp_timing *tm,uint32_t fba,uint32_t bgclr)
 {
 	presetup_ltdc(tm);
 	setup_dsi_cmd(tm);
@@ -487,10 +486,8 @@ void init_dsi(const struct disp_timing *tm,uint32_t fba)
 	DispSetup(DSI); // conf. display
 
 	switch_dsi_to_videomode();
-	ltdc_start();
+	ltdc_start(bgclr);
 
-	//ltdc_layer_setup(LTDC_Layer1,tm,2,0  ,0,0,320,320);
-	//ltdc_layer_setup(LTDC_Layer2,tm,5,fba,0,0,320,320);
 	LTDC->SRCR = LTDC_SRCR_VBR;
 	dtim_dump(tm);
 	udelay(150000);
@@ -523,29 +520,30 @@ static int run_dsi(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		return -1;
 	for (i=0;i<TIM_SZ;i++) dti[i] = ph[i];
 
+	memset(&framebuf,0,sizeof(framebuf));
 	if (dsi_disp_reset(-1)<0) {
 		printf("can't init display reset line\r\n");
 		return -1;
 	}
+	fetch_fdt_ints(fdt,root,"fb-info",2,2,(uint32_t*)&framebuf);
 
 	dsi_start_pll(dsi_timing.dsi_mhz*1000);
 
-	framebuf.fba = NULL; 
-	fetch_fdt_ints(fdt,root,"fb-info",2,2,(uint32_t*)&framebuf);
-
 	if (framebuf.fba && framebuf.bytes) 
 		memset(framebuf.fba,0x10,framebuf.bytes); // clear framebuffer
+
+	uint32_t bg_clr = 0xff00ff, turn_on = 0;
+	fetch_fdt_ints(fdt,root,"bg-color",1,1,&bg_clr);
+	fetch_fdt_ints(fdt,root,"turn-on",1,1,&turn_on);
+
 	dsi_disp_reset(1);
 	udelay(10000);
 	dsi_disp_reset(0);
 	udelay(10000);
-	init_dsi(&dsi_timing,(uint32_t)framebuf.fba);
+	init_dsi(&dsi_timing,(uint32_t)framebuf.fba,bg_clr);
 	ltdc_layer_setup(2,&dsi_timing,5,(uint32_t)framebuf.fba,1,1,318,318);
 
-	// don't activate yet
-	//LTDC->SRCR = LTDC_SRCR_VBR; 
-
-	//asm("bkpt");
+	if (turn_on) LTDC->SRCR = LTDC_SRCR_VBR; 
 	return 0;
 }
 
