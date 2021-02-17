@@ -96,6 +96,9 @@ static void regain_mpu_control()
 	i2c_setup(I2C2); // reinit - take control from linux
 }
 
+int reset_machine();
+void gicc_disable();
+
 // override PSCI power-off handling, mainly to supress
 // display glitch
 void reset_hook()
@@ -104,16 +107,21 @@ void reset_hook()
 	disable_power_n();	// proper off sequencing
 }
 
-void gicc_disable();
-
-// override PSCI power-off handling
+#define BT_INSN_STANDBY 1
+// override PSCI power-off handling, set boot insn and reboot
 int power_off() 
+{
+	mp1_set_boot_insn(BT_INSN_STANDBY);
+	reset_hook();
+	return reset_machine();
+}
+
+// we are called from early booted MPU in secure mode
+// without console
+static void standby()
 {
 	const int wdg = 0;	// start wdt to wake us (for debug)
 
-	// make sure interrupt doesn't mess with our sleep
-	gicc_disable();
-	regain_mpu_control();
 	if (wdg) RCC->MP_APB5ENSETR = RCC_MP_APB5ENSETR_IWDG1APBEN;
 
 	if (0) // doesn't shut off completely in DBG mode
@@ -127,18 +135,8 @@ int power_off()
 		udelay(100);
 		IWDG1->KR = 0xaaaa;
 	}
-	disable_power_n();
-
 	RCC->MP_GCR = 0;	// MCU in HOLD_BOOT
 	RCC->MP_GRSTCSETR = RCC_MP_GRSTCSETR_MCURST;
-
-	// Note: standby is not working with SMP when second CPU is
-	// in WFE (in arch/arm/kernel/smp.c). Actual workaround
-	// is to use echo 0 > /sys/devices/system/cpu/cpu1/online and
-	// use RCC_MP_GRSTCSETR_MPUP1RST.
-	// Also note that RCC_MP_GRSTCSETR_MPUP1RST can't be used
-	// alone in this function because real reset is applied only
-	// after subsequent WFI. devik
 
 	// KEY_ON = PI11/WKUP_5
 	PWR->WKUPCR = PWR_WKUPCR_WKUPP_5	// negative polarity
@@ -149,11 +147,22 @@ int power_off()
 	PWR->MCUCR = PWR->MPUCR = PWR_MPUCR_PDDS;
 	RCC->MP_SREQSETR = RCC_MP_SREQSETR_STPREQ_P0|RCC_MP_SREQSETR_STPREQ_P1;
 
-	xprintf("WFI %X %X %X\n",DBGMCU->CR,PWR->MPUCR,PWR->MCUCR);
-	udelay(100000);
+	//xprintf("WFI %X %X %X\n",DBGMCU->CR,PWR->MPUCR,PWR->MCUCR);
+	//udelay(100000);
+	__DSB();
 	__WFI();
-	xprintf("WFI done %X %X %X\n",DBGMCU->CR,PWR->MPUCR,PWR->MCUCR);
+	__DSB();
 	asm("bkpt");
+}
+
+// hook into early boot sequence
+int hook_boot_insn(uint8_t insn,int is_secure)
+{
+	if (insn == BT_INSN_STANDBY) {
+		mp1_set_boot_insn(0);
+		standby();
+		return 1;
+	}
 	return 0;
 }
 
