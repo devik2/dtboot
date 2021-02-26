@@ -127,6 +127,9 @@ static void common_gpios_preinit()
 
 void linux_enter_hook()
 {
+	int nons = mp1_mctx.boot_flags[BFI_NONS];
+	if (nons & 4) asm("bkpt");
+
 	// turn red led off (boot done)
 	gpio_setup_one(PIN2_LED2, PM_OUT|PM_DFLT(1),0);
 }
