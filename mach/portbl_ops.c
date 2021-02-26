@@ -122,6 +122,7 @@ static void standby()
 {
 	const int wdg = 0;	// start wdt to wake us (for debug)
 
+	somp1_disable_osc();
 	if (wdg) RCC->MP_APB5ENSETR = RCC_MP_APB5ENSETR_IWDG1APBEN;
 
 	if (0) // doesn't shut off completely in DBG mode
