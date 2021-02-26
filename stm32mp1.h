@@ -19,6 +19,7 @@ int ddr_init(int use_slow,int use_ddr3,int fast_test);
 int set_pll(int n,int fi,int m,int mul,int dp,int dq,int dr);
 void stgen_setup(int mhz,int use_hse,int keep);
 void set_tz_sec();
+void somp1_disable_osc();
 
 void i2c_setup(I2C_TypeDef *I2C);
 int i2c_wr(I2C_TypeDef *I2C,int addr,const char *data,int len,int aut);

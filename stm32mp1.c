@@ -428,6 +428,15 @@ void gpio_setup_same(const gport_t *lst,uint16_t mode,uint8_t alt)
 }
 
 #define PIN2_OSCEN PM_Z(5)
+
+// SOMP1 uses pulldown on OSC EN but OSC's internal pullup is
+// stronger. Fortunately one can force it down and OSC removes
+// it pullup. Do it before suspend (5mA goes to OSC)
+void somp1_disable_osc()
+{
+	gpio_setup_one(PIN2_OSCEN,PM_OUT|PM_DFLT(0),0);
+}
+
 static int run_hse(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
