@@ -33,18 +33,47 @@ static int verify(int data)
 	return 0;
 }
 
+#define STORE_BBT 0
+
+#if STORE_BBT
+static int write_bbt(int eb,int second,const uint16_t *bbt,int bsz)
+{
+	const struct mtd_chip_t *chip = prog_dev->chip;
+	int esh = chip->eb_sh;
+	int dsz = 1 << chip->page_sh;
+	int esz = 1 << chip->ecc_sh;
+	memset(mtd_buf,0xff,dsz+esz); // mark all ok
+	memcpy(mtd_buf+dsz+0xe,second?"1tbB":"Bbt0",5);
+	int i;
+	for (i=0;i<bsz;i++) {
+		uint16_t idx = bbt[i];
+		mtd_buf[idx>>2] &= ~(3<<((idx&3)*2));
+	}
+	i = chip->eb_cnt;
+	mtd_buf[i>>2] = 0xaa;	// last 4 (BBT) marked as reserved
+
+	if ((i=prog_dev->erase(prog_dev,eb<<esh))<0) {
+		xprintf("error erasing BBT EB %d (err %d)\n",eb,i);
+		return i;
+	}
+	if ((i=prog_dev->write_page(prog_dev,eb<<esh,mtd_buf,dsz+esz))<0) {
+		xprintf("error writing BBT EB %d (err %d)\n",eb,i);
+		return i;
+	}
+	xprintf("BBT sec=%d written to EB %d\n",second,eb);
+	return 0;
+}
+#endif
+
+#define MAX_BB 64
 static void scan_bb()
 {
 	const struct mtd_chip_t *chip = prog_dev->chip;
 	if (!MTD_ISNAND(chip)) {
 		xprintf("must be NAND!\n"); return;
 	}
-	char buf[512];
+	uint16_t bbs[MAX_BB];
 	xprintf("bad block scan, cnt=%d\n",chip->eb_cnt);
-	if (sizeof(buf)*8 < chip->eb_cnt) {
-		xprintf("small BB buf!\n"); return;
-	}
-	memset(buf,0,sizeof(buf));
 	int i,e,ec=0;
 	int sz = (1 << chip->page_sh) + (1 << chip->ecc_sh);
 	uint64_t *ecc_ptr = (uint64_t*)(mtd_buf+(1 << chip->page_sh));
@@ -57,17 +86,60 @@ static void scan_bb()
 		else if (*ecc_ptr == -1LL) continue;
 		xprintf("BB at EB %d (%X %X)\n",i,
 				*(int*)ecc_ptr,((int*)ecc_ptr)[1]);
-		buf[i>>3] |= 1<<(i&7); ec++;
+		if (ec>=MAX_BB) {
+			xprintf("too many BBs found, ignore others!\n"); 
+			break;
+		}
+		bbs[ec++] = i;
 	}
-	xprintf("found %d BBs\n",ec);
+	xprintf("found %d BBs:",ec);
+	for (i=0;i<ec;i++) xprintf("%d%c",bbs[i],i==ec-1?'\n':',');
+	if (ec && bbs[ec-1]>=chip->eb_cnt-4) {
+		xprintf("BB in BBT area, not supported yet!\n");
+		return;
+	}
+#if STORE_BBT
+	write_bbt(chip->eb_cnt-2,0,bbs,ec);
+	write_bbt(chip->eb_cnt-1,1,bbs,ec);
+#endif
 }
+
+#if STORE_BBT
+static void dump_bbt()
+{
+	const struct mtd_chip_t *chip = prog_dev->chip;
+	int dsz = 1 << chip->page_sh;
+	int esz = 1 << chip->ecc_sh;
+	if (!MTD_ISNAND(chip)) {
+		xprintf("must be NAND!\n"); return;
+	}
+	if (prog_a>=chip->eb_cnt) return;
+	int cnt,j,i = prog_dev->read_page(
+			prog_dev,prog_a<<chip->eb_sh,mtd_buf,dsz+esz);
+	if (i<0) return;
+	const char *tab = NULL;
+	if (!memcmp(mtd_buf+dsz+0xe,"Bbt0",4)) tab = "primary";
+	if (!memcmp(mtd_buf+dsz+0xe,"1tbB",4)) tab = "secondary";
+	xprintf("at %d found %s BBT version 0x%02X\n",prog_a,
+			tab ? tab : "no",mtd_buf[dsz+0x12]);
+	if (!tab) return;
+	for (i=0,cnt=0;i<dsz;i++) {
+		if (mtd_buf[i]==0xff) continue;
+		for (j=0;j<4;j++) {
+			int c = (mtd_buf[i] >> (j*2)) & 3;
+			if (c==3) continue;
+			xprintf("%2d. BB at %d: %d\n",++cnt,i*4+j,c);
+		}
+	}
+}
+#endif
 
 static void dump_page()
 {
 	mtd_dump_page(prog_dev,prog_a,0);
 }
 
-static void erase_eb()
+static void erase_eb() // use pagenumber as input !
 {
 	int e;
 	if ((e=prog_dev->erase(prog_dev,prog_a))<0) {
@@ -101,7 +173,9 @@ void prog_ext()
 	if (prog_s == 2) { dump_page(); goto pend; }
 	if (prog_s == 3) { erase_eb(); goto pend; }
 	if (prog_s == 4) { make_bb(); goto pend; }
-
+#if STORE_BBT
+	if (prog_s == 5) { dump_bbt(); goto pend; }
+#endif
 	const struct mtd_chip_t *chip = prog_dev->chip;
 	xprintf("ext program from %X to %s at %X sz %d\n",
 			prog_s,chip->name,prog_a,prog_l);
