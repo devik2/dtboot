@@ -279,3 +279,15 @@ use MDIO to communicate with the PHY):
   mp1,wr32 = <0x50000218 0x80 0>, // enable ETH_CK
              <0x50000804 0x1004 0>;  // 24MHz to MCO2
 ```
+
+### driver 'mp1,stm8'
+
+Allows to contact STM8 system MCU on SOMP1 SOM. 
+```dts
+  compatible = "mp1,stm8";
+  patch-mac-to = <&ethernet0>;
+```
+Can be always safely added (ethernet0 is defined by STM dtsi);
+when MAC is stored in EEPROM of STM8 (MAC allocated for given
+SOM) then it is patched to `local-mac-address` and used by linux
+then.

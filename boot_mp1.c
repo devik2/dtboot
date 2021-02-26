@@ -27,6 +27,8 @@
 #define PIN2_QCLK_EN PM_Z(3)
 #define PIN2_VBOOST PM_Z(0)
 #define PIN2_ACK PM_F(14)
+#define PIN2_SDA PM_Z(1)
+#define PIN2_SCL PM_Z(4)
 
 struct stm32mp1_mctx mp1_mctx;
 const char *git_version = GIT;
@@ -310,3 +312,56 @@ DECLARE_MOD(mp1_ddr3) {
 	.name = "mp1,ddr3", .run = run_ddr
 };
 
+static int stm8_read(int cmd,int sz,uint8_t *buf)
+{
+	uint8_t _cmd = cmd;
+	int res = i2c_wr(I2C5,0x47,&_cmd,1,1);
+	udelay(1000);
+	if (res) return res;
+	res = i2c_rd(I2C5,0x47,buf,sz);
+	udelay(1000);
+	return res;
+}
+
+static int run_stm8(struct module_desc_t *dsc,struct boot_param_header *fdt,
+		uint32_t *root)
+{
+	RCC->MP_APB1ENSETR = RCC_MC_APB1ENSETR_I2C5EN;
+	(void)RCC->MP_APB1ENSETR;
+
+	gport_t i2cp[] = { PIN2_SCL,PIN2_SDA,0 };
+	gpio_setup_same(i2cp,PM_ALT|PM_PU|PM_OD,4);
+	i2c_setup(I2C5);
+
+	// try to read STM8 module info
+	uint8_t buf[16];
+	int r = stm8_read(0x5a,4,buf);
+	if (r) r = stm8_read(0x5a,4,buf); // retry
+	if (r) {
+		xprintf("can't connect to STM8\n");
+		return r;
+	}
+	r = stm8_read(0x88,6,buf);
+	if (r) {
+		xprintf("can't read MAC from STM8\n");
+		return r;
+	}
+	int i;
+	for (i=0,r=0;i<6;i++) if (buf[i]) r++;
+	if (!r) return 0;
+
+	uint32_t ph = 0;
+	fetch_fdt_ints(fdt,root,"patch-mac-to",1,1,&ph);
+	if (ph) do {
+		uint32_t *p,*hdl = lookup_fdt_by_phandle(fdt,ph,NULL);
+		if (!hdl) break;
+		if (lookup_fdt(fdt,"local-mac-address",&p,hdl)!=6) break;
+		xprintf("patching MAC address\n");
+		memcpy(p,buf,6);
+	} while(0);
+	return 0;
+}
+
+DECLARE_MOD(mp1_stm8) {
+	.name = "mp1,stm8", .run = run_stm8
+};
