@@ -169,6 +169,7 @@ static uint32_t flash_wait(struct mtd_dev_t *dev)
 static uint32_t nand_unlock()
 {
 	qspi_xact(0x1f,0xa000,QAD(2),NULL,0);
+	qspi_wait();
 }
 
 static int read_pg_common(struct mtd_dev_t *dev,uint8_t *buf,int sz,
