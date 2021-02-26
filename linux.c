@@ -61,7 +61,6 @@ static int run_ldlinux(struct module_desc_t *dsc,struct boot_param_header *fdt,
 	}
 	console_stop_buf();
 	linux_enter_hook();
-	//gpio_out(PM_A(8),1);
 	start_linux(kernel,(int)mctx->fdt_ddr);
 }
 
