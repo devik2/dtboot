@@ -68,7 +68,7 @@ static void read_by_mdma(void *dst,int bytes)
 	while (!(MDMA_Channel0->CISR & MDMA_CISR_CTCIF)) coro_yield();
 }
 
-static int qspi_xact(int cmd,int addr,int mode,uint32_t *buf,int len)
+int qspi_xact(int cmd,int addr,int mode,uint32_t *buf,int len)
 {
 	int asz = (mode >> 4) & 7;
 	int dwid = (mode & (QMO_DBL|QMO_QDL) ? QUADSPI_CCR_DMODE_1 : 0)|
@@ -128,7 +128,7 @@ static int qspi_xact(int cmd,int addr,int mode,uint32_t *buf,int len)
 	return 0;
 }
 
-static void qspi_wait()
+void qspi_wait()
 {
 	while (QUADSPI->SR & QUADSPI_SR_BUSY) coro_yield();
 }
