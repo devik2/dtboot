@@ -158,6 +158,16 @@ alternative DTB tailored for use in the tester.
   `dt-boot/enter-shell`. Typicaly initrd based emergency code enters
   shell when set.
 
+## Boot instruction
+
+In TEMP 17 register a special value 0x1177XXXX can be stored to convey
+one time instruction to bootloader.
+`hook_boot_insn` is called when it set. We use it for example to
+reboot from POWER OFF PSCI handler with instruction to go into
+standby mode.
+Because of a few problems with STM32MP1 it is much simpler to
+standby system after reset. Also it is simpler to debug.
+
 ## DT configuration
 
 Once DTB is loaded, its `dt-boot` subsection is inspected. All
