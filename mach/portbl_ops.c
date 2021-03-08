@@ -278,28 +278,29 @@ static int decode_logo(struct simple_image_t *img,void *buf,int max_fb)
 	return 0;
 }
 
-static void show_logo(char *fba)
+extern struct fbuf_t framebuf;
+static void show_logo(const uint8_t *px)
 {
 	if (!img.w) return;
 
-	// move image to the center
-	int i;
-	uint8_t *p = fba + img.palsz;
-	uint8_t *d = fba + (320-img.w)/2 + (320-img.h)/2*320;
+	// copy image to the center
+	int i,j;
+	const uint8_t *p = px + img.palsz;
+	uint8_t *d = framebuf.fba + (320+img.h)/2 + (320-img.w)/2*320;
+	memset(framebuf.fba,0,320*320);
 	for (i=0;i<img.h;i++) {
-		memcpy(d,p,img.w); p += img.w; d += 320;
+		for (j=0;j<img.w;j++,d+=320) *d = *(p++);
+		d -= img.w*320+1;
 	}
-	p = fba;
+	p = px;
 	for (i=0;i<img.pcnt;i++) { // palette
 		int j = i<<24; memcpy(&j,p,3); p += 3;
 		LTDC_Layer2->CLUTWR = j;
 	}
-	memset(fba,0,img.palsz+img.pixsz); // clear old image
 	LTDC->SRCR = LTDC_SRCR_VBR; // activate layer
 	xprintf("[%d] logo done\n",get_ms_precise());
 }
 
-extern struct fbuf_t framebuf;
 static int run_logo(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
@@ -307,8 +308,9 @@ static int run_logo(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		xprintf("logo: ERROR: bad framebuffer\n");
 		return -1;
 	}
-	decode_logo(&img,framebuf.fba,framebuf.bytes);
-	show_logo(framebuf.fba);
+	void *sram2 = (void*)0x10020000;
+	decode_logo(&img,sram2,0x10000);
+	show_logo(sram2);
 	return 0;
 }
 

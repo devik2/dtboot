@@ -199,7 +199,7 @@ void DispSetup(DSI_TypeDef* DSIx)
   DSI_LongWrite(DSIx, 0, DSI_DCS_LONG_PKT_WRITE, 3, 0xBE, regData9);
   DSI_LongWrite(DSIx, 0, DSI_DCS_LONG_PKT_WRITE, 7, 0xCF, regData10);
   DSI_ShortWrite(DSIx, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0x35, 1);
-#if 1
+#if 0
   DSI_ShortWrite(DSIx, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0x36, 0x60); // rotation
 #else
   DSI_ShortWrite(DSIx, 0, DSI_DCS_SHORT_PKT_WRITE_P1, 0x36, 0x0); // rotation
