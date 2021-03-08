@@ -505,6 +505,7 @@ static int run_clocks(struct module_desc_t *dsc,struct boot_param_header *fdt,
 	if (plls & 1) RCC->MPCKSELR = 2;	// MPU from PLL
 	if (plls & 2) RCC->ASSCKSELR = 2;	// AXI from PLL
 	if (plls & 4) RCC->MSSCKSELR = 3;	// MCU from PLL3P
+	RCC->AXIDIVR = 0;	// seems it is 2 after boot
 	if (hse_fq) stgen_setup(hse_fq,1,1);
 	if (fetch_fdt_ints(fdt,root,"mp1,qspi-div",1,1,args)>0)
 		qspi_set_divider(clamp_int_warn(args[0],1,64));
