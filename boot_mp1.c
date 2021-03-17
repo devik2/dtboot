@@ -246,10 +246,10 @@ void main(const boot_api_context_t *ctx)
 		call_smc(SMC_NSEC,0,0); // switch to NS state
 		setup_ns_mode();
 	}
-	if (nons & 2 && !prog_x) asm("bkpt");
 
 	mp1_initial_console();
 	mp1_show_boot_flags();
+	if (nons & 2 && !prog_x) asm("bkpt");
 
 	//call_smc(SMC_DUMP_INFO,0,0);
 
