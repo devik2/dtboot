@@ -41,6 +41,7 @@ struct machine_ctx_t {
 	uint32_t fdt_size;
 	struct mtd_dev_t *mtd;		// boot device
 	uint16_t ddr_mb;
+	uint16_t _pad;
 } extern *mctx;
 
 struct module_desc_t {
