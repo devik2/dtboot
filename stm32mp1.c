@@ -261,8 +261,11 @@ static int mp1_check_flags(const uint8_t *flg)
 static int mp1_apply_flags(uint8_t *tab,const uint8_t *flg)
 {
 	if (!mp1_check_flags(flg)) return 0;
-	for (;*flg & 0xf0;flg++) 
+	for (;*flg & 0xf0;flg++) {
+		uint8_t n = *flg>>4;
+		if (n<=2) memset(tab+1,0xff,2); // flg 1&2 are paired
 		tab[(*flg>>4) & 0xf] = *flg & 0xf;
+	}
 	return 1;
 }
 
