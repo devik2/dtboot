@@ -4,6 +4,7 @@
 #include <string.h>
 #include "system.h"
 #include "coro.h"
+#include "stm32mp1.h"
 #include "stm32mp1_ltdc.h"
 #include "xprintf.h"
 #include "fdt.h"
@@ -523,6 +524,10 @@ static int run_dsi(struct module_desc_t *dsc,struct boot_param_header *fdt,
 	memset(&framebuf,0,sizeof(framebuf));
 	if (dsi_disp_reset(-1)<0) {
 		printf("can't init display reset line\r\n");
+		return -1;
+	}
+	if (mp1_get_rpn_name()[4]!='7') {
+		printf("no DSI in chip\r\n");
 		return -1;
 	}
 	fetch_fdt_ints(fdt,root,"fb-info",2,2,(uint32_t*)&framebuf);

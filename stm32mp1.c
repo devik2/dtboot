@@ -375,6 +375,27 @@ int i2c_rd(I2C_TypeDef *I2C,int addr,char *buf,int len)
 	return 0;
 }
 
+struct mp1_rpns_t {
+	uint8_t code;
+	char name[7];
+} static mp1_rpns[] = { { 0x00,"MP157C" }, { 0x01,"MP157A" }, 
+	{ 0x24,"MP153C" }, { 0x25,"MP153A" }, { 0x2E,"MP151C" }, 
+	{ 0x2F,"MP151A" }, { 0x80,"MP157F" }, { 0x81,"MP157D" }, 
+	{ 0xA4,"MP153F" }, { 0xA5,"MP153D" }, { 0xAE,"MP151F" }, 
+	{ 0xAF,"MP151D" },
+};
+
+const char *mp1_get_rpn_name()
+{
+	uint32_t rpn = *(uint32_t*)0x5c005204;
+	int i;
+	rpn &= 0xff;
+	for (i=0;i<sizeof(mp1_rpns)/sizeof(struct mp1_rpns_t);i++) 
+		if (mp1_rpns[i].code == rpn) 
+			return mp1_rpns[i].name;
+	return "UNKNWN";
+}
+
 // GPIO support
 static GPIO_TypeDef *gpio_get(uint16_t port)
 {

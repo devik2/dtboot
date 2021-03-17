@@ -259,8 +259,9 @@ void main(const boot_api_context_t *ctx)
 		panic("can't init MTD\n");
 	mctx->mtd = &mtd;
 	
-	xprintf("MTD: %s %s, VBAR=0x%X\n",
-		MTD_ISNAND(mtd.chip) ? "NAND":"NOR", mtd.chip->name, get_VBAR());
+	xprintf("MTD: %s %s, VBAR=0x%X, CPU:%s\n",
+		MTD_ISNAND(mtd.chip) ? "NAND":"NOR", mtd.chip->name, 
+		get_VBAR(),mp1_get_rpn_name());
 
 	if (prog_x) run_jtag_prog(&mtd);
 	try_boot_insn(0);

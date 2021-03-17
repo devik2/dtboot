@@ -24,6 +24,7 @@ void somp1_disable_osc();
 void i2c_setup(I2C_TypeDef *I2C);
 int i2c_wr(I2C_TypeDef *I2C,int addr,const char *data,int len,int aut);
 int i2c_rd(I2C_TypeDef *I2C,int addr,char *buf,int len);
+const char *mp1_get_rpn_name();
 
 // Boot flags: each can have value 0..15 or undefined (-1)
 // these can be hardcoded in bootloader binary or overriden
