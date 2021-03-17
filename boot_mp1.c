@@ -31,7 +31,7 @@
 #define PIN2_SCL PM_Z(4)
 
 struct stm32mp1_mctx mp1_mctx;
-const char *git_version = GIT;
+const char git_version[] = GIT;
 
 static void mp1_minimal_ddr_clock()
 {

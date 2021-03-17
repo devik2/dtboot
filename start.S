@@ -32,6 +32,8 @@ prog_x: .word 0 @ if nonzero, special prog. is run instead of boot
 	@ 0x40 embeded boot flags
 ebflags:.byte 0x12	@ UART1 at PA9
 	.byte 0x3,0,0,0,0,0,0
+	@ 0x48, git revision pointer
+	.word git_version
 mstk2:	.word 0x2ffe0000
 mstk:	.word 0x2ffdf000
 p_scr:	.word 0			@ SCR on SMC entry stored here
