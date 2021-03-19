@@ -18,6 +18,7 @@
 
 void qspi_set_divider(int div)
 {
+	xprintf("QSPI: set divider %d\n",div);
 	QUADSPI->CR = (QUADSPI->CR & ~QUADSPI_CR_PRESCALER_Msk)
 		|((div-1) << QUADSPI_CR_PRESCALER_Pos);
 }

@@ -154,19 +154,6 @@ static void mp1_initial_console()
 			get_ms_precise(),uart,git_version);
 }
 
-// TODO
-static void fix_qspi_divider(int min)
-{
-	int qspi_div = 0;
-	uint32_t *ptr;
-	if (lookup_fdt(mctx->fdt,"/dt-boot/qspi-divider",&ptr,NULL)==4)
-		qspi_div = be_cpu(*ptr);
-	if (qspi_div<1 || qspi_div>100) qspi_div = 20;
-	if (qspi_div<min) qspi_div = min;
-	xprintf("setting QSPI divider to %d\n",qspi_div);
-	qspi_set_divider(qspi_div);
-}
-
 static void ddr_init_local(int fast)
 {
 	gpio_setup_one(PIN_DDR_EN,PM_OUT|PM_DFLT(1),0);
