@@ -184,17 +184,22 @@ void udelay(uint32_t us)
 #endif
 }
 
-// p & len must be 32bit aligned, max len is 64k
+// p & len must be 32B aligned, max len is 64k
 static void crc_dma(const char *p,int len,int rpt)
 {
 	MDMA_Channel1->CIFCR = 0x1f;	// clear all flags
 	MDMA_Channel1->CSAR = (int)p;
 	MDMA_Channel1->CDAR = (int)&CRC1->DR;
 	MDMA_Channel1->CBNDTR = len|(rpt<<MDMA_CBNDTR_BRC_Pos);
-	MDMA_Channel1->CTCR = ((4-1)<<MDMA_CTCR_TLEN_Pos)|
+	// use 64b 4beat source and 32b 8beat dst bursts
+	// it can do 70MB/s at 120MHz AXI
+	MDMA_Channel1->CTCR = ((32-1)<<MDMA_CTCR_TLEN_Pos)|
 		MDMA_CTCR_DINCOS_1|MDMA_CTCR_SINCOS_1|
-		//MDMA_CTCR_DBURST_0|MDMA_CTCR_SBURST_0|
-		MDMA_CTCR_DSIZE_1|MDMA_CTCR_SSIZE_1|MDMA_CTCR_SINC_1|
+		MDMA_CTCR_PKE|MDMA_CTCR_SINCOS_0|MDMA_CTCR_SSIZE_0|
+		MDMA_CTCR_DBURST_1|MDMA_CTCR_DBURST_0|
+		MDMA_CTCR_SBURST_1|
+		MDMA_CTCR_DSIZE_1|MDMA_CTCR_SSIZE_1|
+		MDMA_CTCR_SINC_1|
 		MDMA_CTCR_TRGM_1|MDMA_CTCR_SWRM;
 	MDMA_Channel1->CCR = MDMA_CCR_EN;
 	MDMA_Channel1->CCR = MDMA_CCR_EN|MDMA_CCR_SWRQ;
@@ -207,7 +212,7 @@ uint32_t crc32 (uint32_t crc, const void *p, uint32_t len)
 	int dma = 1;
 	CRC1->INIT = ~crc;
 	CRC1->CR = CRC_CR_RESET|CRC_CR_REV_OUT|CRC_CR_REV_IN_0|CRC_CR_REV_IN_1;
-	if ((((int)p) & 3) == 0) { // aligned
+	if ((((int)p) & 31) == 0) { // 32B aligned
 		if (len>=0x10000 && dma) {
 			crc_dma(p,0x10000,(len>>16)-1);
 			p += len & 0xfff0000;
@@ -219,9 +224,9 @@ uint32_t crc32 (uint32_t crc, const void *p, uint32_t len)
 				len-=4; p+=4;
 			}
 		} else {
-			crc_dma(p,len & 0xfffc,0);
-			p += len & 0xfffc;
-			len &= 3;
+			crc_dma(p,len & 0xffe0,0);
+			p += len & 0xffe0;
+			len &= 31;
 		}
 	}
 	CRC1->CR = CRC_CR_REV_OUT|CRC_CR_REV_IN_0;
