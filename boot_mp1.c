@@ -320,32 +320,51 @@ static int run_stm8(struct module_desc_t *dsc,struct boot_param_header *fdt,
 
 	gport_t i2cp[] = { PIN2_SCL,PIN2_SDA,0 };
 	gpio_setup_same(i2cp,PM_ALT|PM_PU|PM_OD,4);
+	udelay(1000);
 	i2c_setup(I2C5);
 
 	// try to read STM8 module info
-	uint8_t buf[16];
-	int r = stm8_read(0x5a,4,buf);
-	if (r) r = stm8_read(0x5a,4,buf); // retry
-	if (r) {
-		xprintf("can't connect to STM8\n");
-		return r;
+	uint8_t buf[16]; int i,ok,r;
+	for (i=0,ok=0;i<3;i++) {
+		if (i) {
+			udelay(8192*i);
+			xprintf("stm8 connect retry %d\n",i);
+		}
+		memset(buf,0,sizeof(buf));
+		r = stm8_read(0x5a,4,buf);
+		if (r) r = stm8_read(0x5a,4,buf); // fast retry
+		if (r) {
+			xprintf("can't connect to STM8\n");
+			continue;
+		}
+		if (strncmp(buf,"NORM",4)) {
+			xprintf("bad response from 0x5A cmd: %02X %02X %02X %02X\n",
+					buf[0],buf[1],buf[2],buf[3]);
+			continue;
+		}
+		memset(buf,0,sizeof(buf));
+		r = stm8_read(0x88,6,buf);
+		if (r) {
+			xprintf("can't read MAC from STM8\n");
+			continue;
+		}
+		ok = 1;
+		break;
 	}
-	r = stm8_read(0x88,6,buf);
-	if (r) {
-		xprintf("can't read MAC from STM8\n");
-		return r;
-	}
-	int i;
+	if (!ok) return -1;
 	for (i=0,r=0;i<6;i++) if (buf[i]) r++;
-	if (!r) return 0;
-
+	if (!r) {
+		xprintf("read zero MAC from STM8\n");
+		return -2;
+	}
 	uint32_t ph = 0;
 	fetch_fdt_ints(fdt,root,"patch-mac-to",1,1,&ph);
 	if (ph) do {
 		uint32_t *p,*hdl = lookup_fdt_by_phandle(fdt,ph,NULL);
 		if (!hdl) break;
 		if (lookup_fdt(fdt,"local-mac-address",&p,hdl)!=6) break;
-		xprintf("patching MAC address\n");
+		xprintf("patching MAC address %02X:%02X:%02X:%02X:%02X:%02X\n",
+			buf[0],buf[1],buf[2],buf[3],buf[4],buf[5]);
 		memcpy(p,buf,6);
 	} while(0);
 	return 0;
