@@ -2,7 +2,6 @@
 #include "xprintf.h"
 #include "coro.h"
 
-#define CORO_POOL 6		// max threads
 #define CORO_SSZ (512-3)	// stack in words
 #define CORF_USED 1		// can't reuse slot
 #define CORF_RUN 2		// runable

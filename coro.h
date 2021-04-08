@@ -2,6 +2,7 @@
 typedef struct _coro_t coro_t;
 typedef void (*coro_fn)(void *arg);
 
+#define CORO_POOL 6	// max threads
 void coro_init();
 void coro_done();
 void coro_kill();
