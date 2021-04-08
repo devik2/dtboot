@@ -147,10 +147,10 @@ int mem_test(volatile uint32_t *addr,int mb,uint32_t xor,int verb)
 {
 	uint32_t i,cnt = 1024*1024*mb/4,errs=0;
 	uint32_t t1 = get_ms_precise();
-	coro_yield();
 	for (i=0;i<cnt;i++) {
 //		fpga_gpio2(i==0x3458); // trig
 		addr[i] = i^xor;
+		if ((i & 0x3ff)==0) coro_yield();
 #if 0
 		uint32_t d = addr[i];
 		if (d != i^xor) {
@@ -161,9 +161,9 @@ int mem_test(volatile uint32_t *addr,int mb,uint32_t xor,int verb)
 		}
 #endif
 	}
-	coro_yield();
 	uint32_t tmsk = 0xffffffff;
 	for (i=0;i<cnt;i++) {
+		if ((i & 0x3ff)==0) coro_yield();
 		uint32_t d = addr[i];
 		if (((d ^ (i^xor))&tmsk)==0) continue;
 		errs++;

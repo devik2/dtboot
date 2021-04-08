@@ -582,6 +582,7 @@ static int run_gpio(struct module_desc_t *dsc,struct boot_param_header *fdt,
 			uint32_t x = be_cpu(*arg);
 			xprintf("setup gpio %X\n",x);
 			gpio_setup_one(x & 0xff,x >> 16,(x >> 8) & 0x1f);
+			coro_yield();
 		}
 	}
 	sz = lookup_fdt(fdt,"mp1,wr32",&arg,root);
@@ -595,6 +596,7 @@ static int run_gpio(struct module_desc_t *dsc,struct boot_param_header *fdt,
 			uint32_t *p = (uint32_t*)arg[0];
 			if (arg[2]) *p = (*p & arg[2]) | arg[1];
 			else *p = arg[1];
+			coro_yield();
 		}
 	}
 	return 0;
