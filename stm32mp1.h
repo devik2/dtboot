@@ -29,6 +29,7 @@ int i2c_rd(I2C_TypeDef *I2C,int addr,char *buf,int len);
 // by TEMP registers.
 // Each flag is encoded as 8 bits: MSB:{BFI} LSB:{VAL} and
 // last one is always checksum (BFI_CHECK).
+#define BOOT_MODE_INSN 17	// in TEMP; set by linux to alter next boot
 #define BOOT_FLAGS_POS 18	// in TEMP
 #define BOOT_FLAGS_MAX 1	// in TEMP
 #define BFI_CHECK 0	// last one in block, value is XOR of all prev nibbles
@@ -44,12 +45,14 @@ struct stm32mp1_mctx {
 	const boot_api_context_t *bctx; // given by ROM bootloader
 	int8_t boot_flags[16];		// 0xff (-1) for unset flag
 	uint8_t lump_rev;	// 0=orig,1=with stm8
+	uint8_t boot_insn;	// extra boot request from linux
 };
 
 // load and merge flags from boot header and TEMP to context
 // boot_flags member
 void mp1_read_boot_flags(struct stm32mp1_mctx *ctx);
 void mp1_show_boot_flags();
+void mp1_set_boot_insn(uint8_t insn);
 uint32_t mp1_uart_tx_setup(uint32_t seq,int up);
 USART_TypeDef *mp1_get_uart(uint32_t uid,uint32_t clk);
 void init_usart(int id,USART_TypeDef *usart,int div,int buf);

@@ -275,6 +275,17 @@ void mp1_read_boot_flags(struct stm32mp1_mctx *ctx)
 	volatile uint32_t *t = &TAMP->BKP0R;
 	for (i=0;i<BOOT_FLAGS_MAX;i++) lf[i] = t[BOOT_FLAGS_POS+i];
 	mp1_apply_flags(ctx->boot_flags,(uint8_t*)lf);
+
+	i = t[BOOT_MODE_INSN];
+	ctx->boot_insn = 0;
+	if ((i & 0xffffff00) == 0x11770000) ctx->boot_insn = i & 255;
+}
+
+void mp1_set_boot_insn(uint8_t insn)
+{
+	PWR->CR1 |= PWR_CR1_DBP; 
+	volatile uint32_t *t = &TAMP->BKP0R;
+	t[BOOT_MODE_INSN] = 0x11770000|insn;
 }
 
 void mp1_show_boot_flags()
@@ -286,7 +297,7 @@ void mp1_show_boot_flags()
 		if (ctx->boot_flags[i]<0) continue;
 		p += xsnprintf(p,5," %x=%x",i,ctx->boot_flags[i]);
 	}
-	xprintf("%s\n",buf);
+	xprintf("INSN:%d %s\n",ctx->boot_insn,buf);
 }
 
 void i2c_setup(I2C_TypeDef *I2C)

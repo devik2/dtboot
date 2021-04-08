@@ -189,6 +189,21 @@ void stm32mp_init_gic(int cpu2);
 void setup_ns_mode();
 void psci_setup(struct boot_param_header *fdt,uint32_t *root);
 
+__attribute__ ((weak)) int hook_boot_insn(uint8_t insn,int is_secure)
+{
+	return 0; // not processed
+}
+
+static void try_boot_insn(int secure)
+{
+	if (!mp1_mctx.boot_insn) return;
+	if (!hook_boot_insn(mp1_mctx.boot_insn,secure)) return;
+
+	// mark as done
+	mp1_set_boot_insn(0);
+	mp1_mctx.boot_insn = 0;
+}
+
 // we are entering in secure SVC mode
 void main(const boot_api_context_t *ctx)
 {
@@ -197,10 +212,10 @@ void main(const boot_api_context_t *ctx)
 		RCC_MC_AHB4ENSETR_GPIOEEN|RCC_MC_AHB4ENSETR_GPIOFEN|
 		RCC_MC_AHB4ENSETR_GPIOGEN|RCC_MC_AHB4ENSETR_GPIOHEN|
 		RCC_MC_AHB4ENSETR_GPIOIEN;
-	RCC->MP_AHB6ENSETR = RCC_MC_AHB6ENSETR_CRC1EN;
 	RCC->MP_AHB5ENSETR = RCC_MC_AHB5ENSETR_GPIOZEN;
-	RCC->MP_APB5ENSETR = RCC_MC_APB5ENSETR_STGENEN;
 	RCC->MP_APB3ENSETR = RCC_MC_APB3ENSETR_SYSCFGEN;
+	RCC->MP_AHB6ENSETR = RCC_MC_AHB6ENSETR_CRC1EN;
+	RCC->MP_APB5ENSETR = RCC_MC_APB5ENSETR_STGENEN;
 	memset(_bss_start,0,_bss_end-_bss_start);
 
 	mctx = &mp1_mctx.ctx;
@@ -209,6 +224,12 @@ void main(const boot_api_context_t *ctx)
 
 	// set by debugger or OS to modify boot behaviour
 	mp1_read_boot_flags(&mp1_mctx);
+
+	rcc_to_defaults();	// in case of soft reboots
+	common_gpios_preinit();
+	stgen_setup(64000,0,0);	// preliminary timer for delays
+	coro_init();  // udelay becomes available
+	try_boot_insn(1);
 
 	set_tz_sec();
 	stm32mp_init_gic(0);
@@ -222,10 +243,6 @@ void main(const boot_api_context_t *ctx)
 	}
 	if (nons & 2 && !prog_x) asm("bkpt");
 
-	rcc_to_defaults();	// in case of soft reboots
-	common_gpios_preinit();
-	stgen_setup(64000,0,0);	// preliminary timer for delays
-	coro_init();  // udelay becomes available
 	mp1_initial_console();
 	mp1_show_boot_flags();
 
@@ -241,6 +258,7 @@ void main(const boot_api_context_t *ctx)
 		MTD_ISNAND(mtd.chip) ? "NAND":"NOR", mtd.chip->name, get_VBAR());
 
 	if (prog_x) run_jtag_prog(&mtd);
+	try_boot_insn(0);
 
 	qspi_set_divider(7); // we are at 64MHz!
 
