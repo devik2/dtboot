@@ -210,7 +210,6 @@ static void enable_power_n(void *arg)
 	// start LPO clock for wifi
 	gpio_setup_one(PINn_CK32,PM_OUT|PM_ALT,3);
 	gen_32k_tim8_1();
-	coro_done();
 }
 
 static void eth_phy_init(void *arg)
@@ -229,14 +228,18 @@ static void eth_phy_init(void *arg)
 	gpio_setup_one(smid.io_mdc,PM_OUT,0);
 	int id = eth_smi_rd(&smid,1,2);
 	xprintf("PHY ID: %X\n",id);
-
-	coro_done();
 }
 
 static int run_portbl(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
 	enable_power_n(NULL);
+	return 0;
+}
+
+static int run_port_eth(struct module_desc_t *dsc,struct boot_param_header *fdt,
+		uint32_t *root)
+{
 	eth_phy_init(NULL);
 	return 0;
 }
@@ -316,6 +319,9 @@ static int run_logo(struct module_desc_t *dsc,struct boot_param_header *fdt,
 
 DECLARE_MOD(eax_portbl) {
 	.name = "eax,portable_n", .run = run_portbl
+};
+DECLARE_MOD(eax_port_eth) {
+	.name = "eax,port_eth", .run = run_port_eth
 };
 
 DECLARE_MOD(eax_portbl_logo) {
