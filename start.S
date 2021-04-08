@@ -182,9 +182,9 @@ boot_secondary:
 	@ coroutine support
 	.globl coro_switch
 coro_switch: @ switch from r0 to r1
-	push {r4-r11,lr}
+	push {r0,r1,r4-r11,lr}	@ r0,r1 are for init args
 	str sp, [r0]
 	ldr sp, [r1]
-	pop {r4-r11,lr}
+	pop {r0,r1,r4-r11,lr}
 	bx lr
 	mov pc, lr

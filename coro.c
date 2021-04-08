@@ -9,14 +9,13 @@
 struct _coro_t {
         uint32_t *sp;
 	const char *name;
-        void *arg;
         int flags; // CORF_XXX
         uint32_t stack[CORO_SSZ];
 } coro_pool[CORO_POOL];
 uint8_t coro_current;
 
 void coro_switch(coro_t *a,coro_t *b);
-int coro_free_index()
+static int coro_free_index()
 {
         int i;
         for (i=0;i<CORO_POOL;i++)
@@ -26,9 +25,9 @@ int coro_free_index()
 
 static void coro_create(coro_t *a,coro_fn fn,void *arg,const char *name)
 {
-        a->sp = a->stack + CORO_SSZ - 10;
-        a->sp[8] = (uint32_t)fn;
-        a->arg = arg;
+        a->sp = a->stack + CORO_SSZ - 12;
+        a->sp[10] = (uint32_t)fn;
+	a->sp[0] = (uint32_t)arg;
 	a->name = name;
         a->flags = CORF_USED|CORF_RUN;
 //        xprintf("coro_create a=%X fn=%X sp=%X\n",a,fn,a->sp);
