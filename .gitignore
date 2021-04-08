@@ -27,4 +27,5 @@ Makefile.deps
 Module.symvers
 modules.order
 *.swp
+*.su
 tags
