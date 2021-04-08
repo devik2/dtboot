@@ -59,7 +59,7 @@ struct module_inst_t {
 	uint8_t cid;		// coroutine id (0=no coro)
 };
 #endif
-void run_modules(struct boot_param_header *fdt,uint32_t *root);
+void run_modules(struct boot_param_header *fdt,uint32_t *root,int no_par);
 
 #define DECLARE_MOD(CB) struct module_desc_t _mach_##CB __attribute__((section(".modtab"))) =
 #endif

@@ -262,7 +262,7 @@ void main(const boot_api_context_t *ctx)
 	console_sync();
 
 	// rest of init is controled by DT
-	run_modules(mctx->fdt,fdt_cob);
+	run_modules(mctx->fdt,fdt_cob,nons & 8);
 
 	asm("bkpt");
 	for (;;) __WFI();
