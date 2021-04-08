@@ -79,15 +79,15 @@ static void init_usart_once()
 
 void console_sync()
 {
-	if (!cons_do_buf) return;
-	while (utx_wr != utx_rd) coro_yield();
+	if (cons_do_buf) while (utx_wr != utx_rd) coro_yield();
+	while (!(dusart[0]->ISR & USART_ISR_TC));
 }
 
 // used when coroutines support ends (when starting Linux)
 void console_stop_buf()
 {
-	if (!cons_task) return;
 	console_sync();
+	if (!cons_task) return;
 	coro_kill(cons_task); cons_task = 0;
 	cons_do_buf = 0;
 	xstream_out.putc = uart_putc;
@@ -186,6 +186,7 @@ static int run_console(struct module_desc_t *dsc,struct boot_param_header *fdt,
 
 	// always remove old and setup new even if they are the same
 	// because probably at least clock source changed
+	console_stop();
 	mp1_uart_tx_setup(uid,0);
 	int uart = mp1_uart_tx_setup(nid,1);
 
