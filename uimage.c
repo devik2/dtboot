@@ -18,8 +18,7 @@ uint32_t prep_uimage(struct mtd_dev_t *mtd,uint32_t addr,
 	int i;
 	struct image_header h;
 	uint8_t *pbuf = mtd_buf;
-	uint32_t *p = (void*)&h, pg = 0;
-	int max_bb = 5;
+	uint32_t *p = (void*)&h;
 	int pgsz = 1 << mtd->chip->page_sh;
 	if (pgsz > MTD_BUFSZ || pgsz < sizeof(h)) {
 		xprintf("bad MTD page size: %d\n",pgsz); 

@@ -57,12 +57,12 @@ uint32_t *lookup_fdt_section(struct boot_param_header *hdr,
 		const char *path,uint32_t *root);
 int clamp_int_warn(int x,int min,int max);
 
-static uint32_t be_cpu(uint32_t x)
+static inline uint32_t be_cpu(uint32_t x)
 {
 	return __builtin_bswap32(x);
 }
 
-static uint32_t align4(uint32_t x)
+static inline uint32_t align4(uint32_t x)
 {
 	return (x+3) & 0xfffffffc;
 }

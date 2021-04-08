@@ -263,7 +263,7 @@ static int mp1_check_flags(const uint8_t *flg)
 	return (*flg & 0xf) == (sum & 0xf);
 }
 
-static int mp1_apply_flags(uint8_t *tab,const uint8_t *flg)
+static int mp1_apply_flags(int8_t *tab,const uint8_t *flg)
 {
 	if (!mp1_check_flags(flg)) return 0;
 	for (;*flg & 0xf0;flg++) {

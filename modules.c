@@ -24,7 +24,6 @@ static int fdt_cb_section(struct fdt_scan_data *dat,uint32_t *node)
 
 static int qcmp(const void *a, const void *b,void *fdt)
 {
-	uint32_t *pa,*pb,dflt = 100;
 	const char *sa = fdt_get_node_name(fdt,*(uint32_t**)a);
 	const char *sb = fdt_get_node_name(fdt,*(uint32_t**)b);
 	if (!sa || !sb) {

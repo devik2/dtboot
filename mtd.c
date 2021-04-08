@@ -36,11 +36,6 @@ static struct mtd_chip_t *mtd_lookup_free_dyn()
 	return NULL;
 }
 
-// autodetect by parameter page TODO
-static int mtd_autodetect_chip(struct mtd_dev_t *dev)
-{
-}
-
 const struct mtd_chip_t *mtd_lookup_flash(uint32_t id)
 {
 	const struct mtd_chip_t *chip = fchips;
@@ -48,13 +43,13 @@ const struct mtd_chip_t *mtd_lookup_flash(uint32_t id)
 	       if ((id & chip->id_mask) == chip->id && chip->page_sh) return chip;
 	return NULL;
 }
-
+#if 0
 // page read random usage
 static int mtd_rand_read_seq(struct mtd_dev_t *dev,uint32_t page,
 		uint8_t *buf, int pg_cnt,int flags)
 {
 }
-
+#endif
 int mtd_generic_read_seq(struct mtd_dev_t *dev,uint32_t page,uint8_t *buf,
 		int pg_cnt,int flags)
 {
@@ -78,7 +73,7 @@ int mtd_generic_read_seq(struct mtd_dev_t *dev,uint32_t page,uint8_t *buf,
 
 // debug functions
 
-char mtd_buf[MTD_BUFSZ] __attribute__((aligned(4)));
+uint8_t mtd_buf[MTD_BUFSZ] __attribute__((aligned(4)));
 
 void dump_mem(const uint8_t *p,int sz)
 {
@@ -106,7 +101,7 @@ void mtd_dump_page(struct mtd_dev_t *dev,uint32_t p,int msz)
 		return;
 	}
 	memset(mtd_buf,0,sz);
-	i = dev->read_page(dev,p,mtd_buf,sz);
+	i = dev->read_page(dev,p,(uint8_t*)mtd_buf,sz);
 	xprintf("MTD %s page 0x%X/0x%X sts %d:\n",chip->name,p,totp,i);
 	dump_mem(mtd_buf,sz);
 }

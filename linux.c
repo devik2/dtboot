@@ -62,6 +62,7 @@ static int run_ldlinux(struct module_desc_t *dsc,struct boot_param_header *fdt,
 	console_stop_buf();
 	linux_enter_hook();
 	start_linux(kernel,(int)mctx->fdt_ddr);
+	return 0;
 }
 
 DECLARE_MOD(mp1_ldlinux) {

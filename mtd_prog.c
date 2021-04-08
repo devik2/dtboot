@@ -14,13 +14,13 @@ static int mem_is_not_ff(const uint8_t *p,int sz)
 
 static int verify(int data)
 {
-	int i,e;
+	int i;
 	const struct mtd_chip_t *chip = prog_dev->chip;
 	int pg1 = prog_a >> chip->page_sh, pg2 = (prog_a+prog_l-1) >> chip->page_sh;
 	const char *pa = (char*)prog_s;
 	int sz = 1 << chip->page_sh;
 	for (i=pg1; i<=pg2; i++) {
-		e = prog_dev->read_page(prog_dev,i,mtd_buf,sz);
+		prog_dev->read_page(prog_dev,i,mtd_buf,sz);
 		int diff = data ? memcmp(mtd_buf,pa,sz) : mem_is_not_ff(mtd_buf,sz);
 		if (diff) {
 			xprintf("verify(%d) error at addr 0x%X\n",

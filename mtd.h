@@ -48,4 +48,4 @@ int mtd_detect_qspi(struct mtd_dev_t *dev,int bus,int flags);
 void qspi_set_divider(int div);
 
 #define MTD_BUFSZ (4096+256)
-extern char mtd_buf[MTD_BUFSZ];
+extern uint8_t mtd_buf[MTD_BUFSZ];

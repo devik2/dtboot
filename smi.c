@@ -18,7 +18,7 @@ static int eth_smi_set(const struct smi_iodef *e,int clk,int io)
 
 uint32_t eth_smi_xact(const struct smi_iodef *e,uint32_t x,int rd)
 {
-	int i; uint32_t r;
+	int i; uint32_t r = 0;
 	eth_smi_set(e,0,3); // IO out
 	for (i=0;i<32;i++,x<<=1) {
 		if (rd && i==14) { eth_smi_set(e,-1,2); x = -1; }
@@ -41,5 +41,5 @@ int eth_smi_rd(const struct smi_iodef *e,int id,int reg)
 void eth_smi_wr(const struct smi_iodef *e,int id,int reg,uint16_t v)
 {
 	eth_smi_xact(e,0xffffffff,0);
-	uint32_t r = eth_smi_xact(e,0x50020000|(id<<23)|(reg<<18)|v,0);
+	eth_smi_xact(e,0x50020000|(id<<23)|(reg<<18)|v,0);
 }

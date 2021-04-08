@@ -299,7 +299,7 @@ void ltdc_layer_setup(int idx,const struct disp_timing *tm,
 {
 	LTDC_Layer_TypeDef *L = idx==1 ? LTDC_Layer1 : LTDC_Layer2;
 	// RGB 332 map
-	int i,x,y,bpp = pfcr==5?1:2;
+	int i,bpp = pfcr==5?1:2;
 	// if we start DSI with uninited CLUTWR, there is mess
 	// on display...
 	if (pfcr==5) for (i=0;i<256;i++) 
@@ -382,7 +382,7 @@ static void fix_ltdc_pll(int khz)
 int dsi_start_pll(int khz)
 {
 	RCC->MP_APB4ENSETR = RCC_MC_APB4ENSETR_DSIEN|RCC_MC_APB4ENSETR_LTDCEN;
-	(void*)RCC->MP_APB4ENSETR;
+	(void)RCC->MP_APB4ENSETR;
 	RCC->APB4RSTSETR = RCC_APB4RSTSETR_LTDCRST|RCC_APB4RSTSETR_DSIRST;
 	udelay(1000);
 	RCC->APB4RSTCLRR = RCC_APB4RSTCLRR_DSIRST|RCC_APB4RSTCLRR_LTDCRST;

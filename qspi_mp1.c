@@ -167,7 +167,7 @@ static uint32_t flash_wait(struct mtd_dev_t *dev)
 	return sts;
 }
 
-static uint32_t nand_unlock()
+static void nand_unlock()
 {
 	qspi_xact(0x1f,0xa000,QAD(2),NULL,0);
 	qspi_wait();
@@ -261,7 +261,7 @@ static int nor_write_page(struct mtd_dev_t *dev,uint32_t pg,const uint8_t *buf,i
 	return sts & 0x40 ? -2 : 0;
 }
 
-static uint32_t nand_continuous_off()
+static void nand_continuous_off()
 {
 	uint32_t buf;
 	qspi_xact(0xf,0xb0,QMO_RD|QAD(1),&buf,1);
@@ -273,7 +273,7 @@ static uint32_t nand_continuous_off()
 	}
 	qspi_wait();
 }
-
+#if 0
 static void nand_wait()
 {
 	uint32_t buf=1;
@@ -282,7 +282,7 @@ static void nand_wait()
 		qspi_xact(0xf,0xc0,QMO_RD|QAD(1),&buf,1);
 	}
 }
-
+#endif
 int mtd_generic_read_seq(struct mtd_dev_t *dev,uint32_t page,uint8_t *buf,
 		int pg_cnt,int flags);
 int mtd_detect_qspi(struct mtd_dev_t *dev,int bus,int flags)
