@@ -283,9 +283,10 @@ void plat_patch_linux_dtb(struct boot_param_header *fdt,uint32_t *lnx)
 static int run_ddr(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
-	ddr_init_local(0);
-	uint32_t ph = 0;
+	uint32_t ph = 0, fast = 0;
 	fetch_fdt_ints(fdt,root,"patch-size-to",1,1,&ph);
+	fetch_fdt_ints(fdt,root,"fast",1,1,&fast);
+	ddr_init_local(fast);
 	if (ph) do {
 		uint32_t *p,*hdl = lookup_fdt_by_phandle(fdt,ph,NULL);
 		if (!hdl) break;
