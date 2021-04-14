@@ -10,6 +10,9 @@
 #include "smi.h"
 #include "Include/stm32mp157axx_cm4.h"
 
+// Usage of BFI_MACH1:
+// standby control; b0=1: autowakeup in 2 sec, b1=1:keep dbg in standby
+
 #define PINn_18_DISP PM_B(9)
 #define PINn_50V_ON PM_H(13)
 #define PIN_RUN_ON PM_G(12)
@@ -120,19 +123,23 @@ int power_off()
 // without console
 static void standby()
 {
-	const int wdg = 0;	// start wdt to wake us (for debug)
-
+	int wdg = 0, stbdbg = 0;
+	int mflg = mp1_mctx.boot_flags[BFI_MACH1];
+	if (mflg>0) {
+		wdg = mflg & 1; stbdbg = mflg & 2;
+	}
 	somp1_disable_osc();
 	if (wdg) RCC->MP_APB5ENSETR = RCC_MP_APB5ENSETR_IWDG1APBEN;
 
-	if (0) // doesn't shut off completely in DBG mode
+	if (stbdbg) // doesn't shut off completely in DBG mode
 		DBGMCU->CR = DBGMCU_CR_DBG_STANDBY|DBGMCU_CR_DBG_STOP;
 	else
 		DBGMCU->CR = 0;
+	// start wdt to wake us (for debug)
 	if (wdg) {
 		IWDG1->KR = 0xcccc;
 		IWDG1->KR = 0x5555;
-		IWDG1->RLR = 32*2; // 1sec
+		IWDG1->RLR = 64*2; // in sec
 		udelay(100);
 		IWDG1->KR = 0xaaaa;
 	}
