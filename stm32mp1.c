@@ -296,6 +296,29 @@ void mp1_set_boot_insn(uint8_t insn)
 	t[BOOT_MODE_INSN] = 0x11770000|insn;
 }
 
+// code to save port Z (I2C) to RAM using DMA
+void setup_dma_sniffer()
+{
+	uint32_t mem = 0x10040000; // SRAM3
+	memset((void*)mem,0,0x10000);
+	RCC->MP_APB1ENSETR = RCC_MC_APB1ENSETR_TIM6EN;
+	RCC->MP_AHB2ENSETR = RCC_MC_AHB2ENSETR_DMA1EN|
+			RCC_MC_AHB2ENSETR_DMAMUXEN;
+	TIM6->ARR = 64; // 1MHz update
+	TIM6->DIER = TIM_DIER_UDE;
+	TIM6->CR1 = TIM_CR1_CEN;
+	DMAMUX1_Channel0->CCR = 69; // TIM6UP
+	DMA1->LIFCR = 0xfffffff;
+	DMA1_Stream0->NDTR = 0xffff;
+	DMA1_Stream0->PAR = (uint32_t)&GPIOZ->IDR;
+	DMA1_Stream0->M0AR = mem|0x20000000;
+	DMA1_Stream0->CR = DMA_SxCR_MINC|DMA_SxCR_MSIZE_1;
+	DMA1_Stream0->FCR = DMA_SxFCR_DMDIS;
+	DMA1_Stream0->CR |= DMA_SxCR_EN;
+	xprintf("sniff dma CR %x %x %x\n",DMA1_Stream0->CR,
+			DMA1_Stream0->M0AR,DMA1->LISR);
+}
+
 void mp1_show_boot_flags()
 {
 	struct stm32mp1_mctx *ctx = (struct stm32mp1_mctx *)mctx;
