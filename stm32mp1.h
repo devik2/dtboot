@@ -40,6 +40,8 @@ const char *mp1_get_rpn_name();
 #define BFI_NONS 3	// nonzero if to stay in secure mode
 #define BFI_DTB_ID 4	// which DTB to use (0=default)
 #define BFI_SHELL 5	// run debug shell if >0
+#define BFI_MACH1 6	// private use by machines
+#define BFI_MACH2 7	// private use by machines
 
 // subclass machine context
 struct stm32mp1_mctx {
