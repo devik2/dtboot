@@ -301,38 +301,55 @@ DECLARE_MOD(mp1_ddr3) {
 	.name = "mp1,ddr3", .run = run_ddr
 };
 
+static uint32_t stm8_dly;
 static int stm8_read(int cmd,int sz,uint8_t *buf)
 {
-	uint8_t _cmd = cmd;
-	int res = i2c_wr(I2C5,0x47,&_cmd,1,1);
-	udelay(1000);
+	uint16_t _cmd = cmd;
+	int res = i2c_wr(I2C5,0x47,(char*)&_cmd,cmd>0xff?2:1,1);
+	udelay(stm8_dly);
 	if (res) return res;
 	res = i2c_rd(I2C5,0x47,buf,sz);
-	udelay(1000);
+	udelay(stm8_dly);
 	return res;
 }
 
+void setup_dma_sniffer();
 static int run_stm8(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
 	RCC->MP_APB1ENSETR = RCC_MC_APB1ENSETR_I2C5EN;
 	(void)RCC->MP_APB1ENSETR;
-
+	setup_dma_sniffer();
+#if 0
 	gport_t i2cp[] = { PIN2_SCL,PIN2_SDA,0 };
-	gpio_setup_same(i2cp,PM_ALT|PM_PU|PM_OD,4);
-	udelay(1000);
+        gpio_setup_same(i2cp,PM_PU|PM_OD|PM_OUT,4);
+	gpio_out(PIN2_SCL,1);
+	gpio_out(PIN2_SDA,1);
+	udelay(5); gpio_out(PIN2_SDA,0); udelay(5); gpio_out(PIN2_SCL,0);
+#endif
+	// turn IO on and simulate STOP condition
+//	udelay(5);
+	gpio_setup_one(PIN2_SCL,PM_ALT|PM_PU|PM_OD,4);
+	gpio_setup_one(PIN2_SDA,PM_ALT|PM_PU|PM_OD,4);
+	udelay(100);
 	i2c_setup(I2C5);
+	stm8_dly = 1000;
+	xprintf("STM8 comm dly %d\n",stm8_dly);
 
 	// try to read STM8 module info
 	uint8_t buf[16]; int i,ok,r;
+	uint32_t mark = 0x100 * 0;
 	for (i=0,ok=0;i<3;i++) {
 		if (i) {
 			udelay(8192*i);
+			stm8_dly *= 2;
 			xprintf("stm8 connect retry %d\n",i);
 		}
 		memset(buf,0,sizeof(buf));
-		r = stm8_read(0x5a,4,buf);
-		if (r) r = stm8_read(0x5a,4,buf); // fast retry
+		r = stm8_read(0x5a|mark,4,buf);
+		if (mark) mark += 0x100;
+		if (r) r = stm8_read(0x5a|mark,4,buf); // fast retry XXX
+		if (mark) mark += 0x100;
 		if (r) {
 			xprintf("can't connect to STM8\n");
 			continue;
@@ -346,6 +363,11 @@ static int run_stm8(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		r = stm8_read(0x88,6,buf);
 		if (r) {
 			xprintf("can't read MAC from STM8\n");
+			continue;
+		}
+		if (!strncmp(buf,"NORM",4)) {
+			xprintf("bad response from 0x88 cmd: %02X %02X %02X %02X\n",
+					buf[0],buf[1],buf[2],buf[3]);
 			continue;
 		}
 		ok = 1;
