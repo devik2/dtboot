@@ -124,7 +124,8 @@ int power_off()
 static void standby()
 {
 	int wdg = 0, stbdbg = 0;
-	int mflg = mp1_mctx.boot_flags[BFI_MACH1];
+	struct stm32mp1_mctx *ctx = (struct stm32mp1_mctx *)mctx;
+	int mflg = ctx->boot_flags[BFI_MACH1];
 	if (mflg>0) {
 		wdg = mflg & 1; stbdbg = mflg & 2;
 	}
