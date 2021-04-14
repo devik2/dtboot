@@ -311,7 +311,7 @@ void mp1_show_boot_flags()
 void i2c_setup(I2C_TypeDef *I2C)
 {
 	I2C->CR1 = 0;
-	I2C->TIMINGR = 0x10ffffff;
+	I2C->TIMINGR = 0x7077c3c7;
 	I2C->CR1 = I2C_CR1_PE;
 }
 
