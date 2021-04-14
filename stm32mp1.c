@@ -434,7 +434,7 @@ void gpio_setup_one(gport_t port,uint16_t mode,uint8_t alt)
 		S_GPIO_OSPEEDR(g,(port&15),(mode >> PM_SPD_Pos) & 3);
 		S_BITFLD(g->OTYPER,(port&15),1,mode & PM_OD ? 1:0);
 	}
-	if ((mode & 3) == PM_IN || mode & PM_ALT) {
+	if ((mode & 3) == PM_IN || mode & PM_ALT || mode & PM_OD) {
 		S_BITFLD(g->PUPDR,(port&15)*2,2,mode & PM_PU ? 1:
 				mode & PM_PD ? 2 :0);
 	}
