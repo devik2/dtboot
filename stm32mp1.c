@@ -318,12 +318,13 @@ void i2c_setup(I2C_TypeDef *I2C)
 // aut is auto-end, use when no trailing read is needed
 int i2c_wr(I2C_TypeDef *I2C,int addr,const char *data,int len,int aut)
 {
+	I2C->ISR = I2C_ISR_TXE; // clear TX register
 	I2C->ICR = I2C_ICR_STOPCF|I2C_ICR_NACKCF;
 	I2C->CR2 = (addr<<1)|I2C_CR2_START|(aut?I2C_CR2_AUTOEND:0)|(len<<16);
 	int i,tmo;
 	for (i=0;i<len;i++) {
 		tmo = 100000;
-		while (!(I2C->ISR & 1)) {
+		while (!(I2C->ISR & I2C_ISR_TXIS)) {
 			if (I2C->ISR & I2C_ISR_NACKF) {
 				xprintf("I2C NACK %x\n",addr);
 				return -1;
