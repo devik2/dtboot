@@ -254,7 +254,7 @@ int ddr_init(int use_slow,int use_ddr3,int fast_test)
 	}
 	int mb = 0;
 	if (fast_test || !mem_test((void*)0xc0000000,1,0,0x10a)) 
-		mb = mem_meas((void*)0xc0000000,512);
+		mb = mem_meas((void*)0xc0000000,1024);
 	xprintf("[%d] detected %d MB DDR\n",get_ms_precise(),mb);
 	return mb;
 }
