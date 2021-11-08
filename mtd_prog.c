@@ -1,6 +1,7 @@
 #include <string.h>
 #include "system.h"
 #include "mtd.h"
+#include "gpio.h"
 #include "xprintf.h"
 
 extern uint32_t prog_a,prog_s,prog_l;
@@ -162,6 +163,31 @@ static void make_bb()
 	}
 }
 
+// doesn't logically belong here but.. it is simplest way
+// it send 2 pulses for each listed pin as part of PCB test
+static void pintest()
+{
+	static const uint16_t plist[9] = { // bits to test in PA...PI
+		0x5f7, 0xffbb, 0x3ff7, 0xc7ff, 
+		0xff4c, 0x1800, 0xfff0, 0x22c0, 0xc70 };
+	int i,j;
+	xprintf("run pintest\n");
+	for (i=0;i<sizeof(plist)/2;i++) {
+		uint16_t sh = plist[i];
+		for (j=0;j<16;j++,sh>>=1) {
+			if (!(sh & 1)) continue;
+			gport_t port = ((i+1)<<4)|j;
+			gpio_setup_one(port,PM_OUT|PM_DFLT(0),0);
+			udelay(100);
+			gpio_out(port,1); udelay(100);
+			gpio_out(port,0); udelay(100);
+			gpio_out(port,1); udelay(100);
+			gpio_out(port,0); udelay(100);
+			gpio_setup_one(port,PM_AN,0);
+		}
+	}
+}
+
 void prog_ext()
 {
 	if (!prog_dev) {
@@ -176,6 +202,7 @@ void prog_ext()
 #if STORE_BBT
 	if (prog_s == 5) { dump_bbt(); goto pend; }
 #endif
+	if (prog_s == 6) { pintest(); goto pend; }
 	const struct mtd_chip_t *chip = prog_dev->chip;
 	xprintf("ext program from %X to %s at %X sz %d\n",
 			prog_s,chip->name,prog_a,prog_l);
