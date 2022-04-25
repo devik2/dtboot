@@ -154,11 +154,11 @@ static void mp1_initial_console()
 			get_ms_precise(),uart,git_version);
 }
 
-static void ddr_init_local(int fast)
+static void ddr_init_local(uint32_t ddr_type)
 {
 	gpio_setup_one(PIN_DDR_EN,PM_OUT|PM_DFLT(1),0);
 	udelay(10000);
-	mctx->ddr_mb = ddr_init(0,1,fast); 
+	mctx->ddr_mb = ddr_init(ddr_type); 
 	xprintf("[%d] DDR done. (%X,%dMB)\n",get_ms_precise(),
 			GPIOZ->ODR,mctx->ddr_mb);
 }
@@ -166,11 +166,11 @@ static void ddr_init_local(int fast)
 extern uint32_t prog_x; // to detect prog mode
 extern struct mtd_dev_t *prog_dev;
 
-static void run_jtag_prog(struct mtd_dev_t *mtd)
+static void run_jtag_prog(struct mtd_dev_t *mtd,int alt_ddr)
 {
 	prog_dev = mtd;
 	mp1_minimal_ddr_clock();
-	ddr_init_local(1);
+	ddr_init_local(alt_ddr ? DDRT_3L_32 : DDRT_3L_16);
 	qspi_set_divider(10);
 	xprintf("MTD programming ready\n");
 	console_sync();
@@ -282,7 +282,7 @@ void main(const boot_api_context_t *ctx)
 		MTD_ISNAND(mtd.chip) ? "NAND":"NOR", mtd.chip->name, 
 		get_VBAR(),mp1_get_rpn_name());
 
-	if (prog_x) run_jtag_prog(&mtd);
+	if (prog_x) run_jtag_prog(&mtd,nons & 8);
 	try_boot_insn(0);
 
 	qspi_set_divider(7); // we are at 64MHz!
@@ -315,10 +315,10 @@ void plat_patch_linux_dtb(struct boot_param_header *fdt,uint32_t *lnx)
 static int run_ddr(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
-	uint32_t ph = 0, fast = 0;
+	uint32_t ph = 0, type = DDRT_3L_16|DDRF_FTEST;
 	fetch_fdt_ints(fdt,root,"patch-size-to",1,1,&ph);
-	fetch_fdt_ints(fdt,root,"fast",1,1,&fast);
-	ddr_init_local(fast);
+	fetch_fdt_ints(fdt,root,"ddr-type",1,1,&type);
+	ddr_init_local(type);
 	if (ph) do {
 		uint32_t *p,*hdl = lookup_fdt_by_phandle(fdt,ph,NULL);
 		if (!hdl) break;
