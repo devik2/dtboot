@@ -15,7 +15,14 @@ uint32_t call_smc(uint32_t cmd,uint32_t a1,uint32_t a2);
 uint64_t get_arm_time();
 uint32_t get_arm_tfreq();
 extern uint8_t ms_freq_sh;
-int ddr_init(int use_slow,int use_ddr3,int fast_test);
+#define DDRT_2_16 0
+#define DDRT_3L_16 1
+#define DDRT_3L_32 2
+#define DDRT_CNT 3
+#define DDRF_SLOW 0x100		// use slow/no_DLL clocking
+#define DDRF_FTEST 0x200	// fast memtest only
+
+int ddr_init(uint32_t ddr_type);
 int set_pll(int n,int fi,int m,int mul,int dp,int dq,int dr);
 void stgen_setup(int mhz,int use_hse,int keep);
 void set_tz_sec();

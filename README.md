@@ -148,6 +148,8 @@ alternative DTB tailored for use in the tester.
 - `BFI_NONS(3)` Linux kernel is entered in ARM's non-secure mode. Set
   this flag's bit 0 to 1 to keep CPU in secure mode. 
   Bit 1 forces bkpt just after mode change.
+  Bit 2 forces bkpt just before jump to Linux kernel.
+  Bit 3 switch alternative DDR type for prog mode (not for DTB mode)
   Intended for debug mainly.
 
 - `BFI_DTB_ID(4)` Select another DTB. Currently any nonzero value select
@@ -248,6 +250,8 @@ Starts DDR3, PLL2.R must be set correctly up (min 300MHz). It uses
 default generic DDR3 parameters for now. 
 It is planned to add timing params here.
 `patch-size-to` can be used to patch autodetected size to `memory` node.
+`ddr-type` sets type (default DDR3L-16bit), see DDR\* constants in 
+`stm32mp1.h`.
 
 ### driver 'mp1,clocks'
 

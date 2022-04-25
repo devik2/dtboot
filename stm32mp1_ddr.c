@@ -42,16 +42,17 @@ int mod_ddr_reg(const char *name,uint32_t s,uint32_t r)
 	return 0;
 }
 
-void mod_flagged(uint16_t msk,int use_ddr3)
+void mod_flagged(uint16_t msk,uint32_t ddr_type)
 {
 	msk &= 0xfe00;
 	msk |= 0x80;
+	ddr_type &= 0xff;
+	if (ddr_type>=DDRT_CNT) ddr_type = 0;
 	const struct ddr_regtab_t *p = ddr_regtab;
 	for (;p->name;p++) {
 		if ((p->flags & msk) == msk) 
 			mod_ddr_reg(p->name,
-				use_ddr3 ? p->val3 : p->val, 
-				0xffffffff);
+				(&p->val)[ddr_type], 0xffffffff);
 	}
 }
 
@@ -117,10 +118,6 @@ void set_dcu_row(int row,uint16_t a,int ba,uint32_t dt,int cmd)
 	xprintf("DCU sts %X\n",_DDRPHYC->dcusr0);
 }
 
-void ddr3_params(int mhz)
-{
-}
-
 // returns mem sz in MB
 int mem_meas(volatile uint32_t *addr,int max_mb)
 {
@@ -179,7 +176,7 @@ int mem_test(volatile uint32_t *addr,int mb,uint32_t xor,int verb)
 	return errs;
 }
 
-int ddr_init(int use_slow,int use_ddr3,int fast_test)
+int ddr_init(uint32_t ddr_type)
 {
 	// reset all blocks
 	RCC->DDRITFCR |= RCC_DDRITFCR_DPHYCTLRST|RCC_DDRITFCR_DPHYRST|
@@ -192,18 +189,18 @@ int ddr_init(int use_slow,int use_ddr3,int fast_test)
 	RCC->DDRITFCR &= ~(RCC_DDRITFCR_DPHYCTLRST|RCC_DDRITFCR_DPHYRST);
 	RCC->DDRITFCR &= ~RCC_DDRITFCR_DDRCAPBRST;
 
-	xprintf("DDR clocks on, ddr3=%d slow=%d\n",use_ddr3,use_slow);
+	xprintf("DDR clocks on, ddr_type=0x%X\n",ddr_type);
 	udelay(100);
 	/* Stop uMCTL2 before PHY is ready */
 	mod_ddr_reg("dfimisc",0,DDRCTRL_DFIMISC_DFI_INIT_COMPLETE_EN);
-	mod_flagged(0x300,use_ddr3);
-	mod_flagged(0x500,use_ddr3);
-	mod_flagged(0x900,use_ddr3); // amap
+	mod_flagged(0x300,ddr_type);
+	mod_flagged(0x500,ddr_type);
+	mod_flagged(0x900,ddr_type); // amap
 
 	/* skip CTRL init, SDRAM init is done by PHY PUBL */
 	mod_ddr_reg("init0",DDRCTRL_INIT0_SKIP_DRAM_INIT_NORMAL,
 			DDRCTRL_INIT0_SKIP_DRAM_INIT_MASK);
-	mod_flagged(0x1100,use_ddr3);
+	mod_flagged(0x1100,ddr_type);
 
 	/*  2. deassert reset signal core_ddrc_rstn, aresetn and presetn */
 	RCC->DDRITFCR &= ~(RCC_DDRITFCR_DDRCORERST|RCC_DDRITFCR_DDRCAXIRST
@@ -212,9 +209,9 @@ int ddr_init(int use_slow,int use_ddr3,int fast_test)
 
 	/*  3. start PHY init by accessing relevant PUBL registers
 	 *    (DXGCR, DCR, PTR*, MR*, DTPR*) */
-	mod_flagged(0x2100,use_ddr3);
-	mod_flagged(0x4100,use_ddr3);
-	mod_flagged(0x8100,use_ddr3);
+	mod_flagged(0x2100,ddr_type);
+	mod_flagged(0x4100,ddr_type);
+	mod_flagged(0x8100,ddr_type);
 	idone_wait(_DDRPHYC);
 
 	/*  5. Indicate to PUBL that controller performs SDRAM initialization
@@ -223,9 +220,9 @@ int ddr_init(int use_slow,int use_ddr3,int fast_test)
 	uint32_t pir = DDRPHYC_PIR_DLLSRST | 
 		DDRPHYC_PIR_ZCAL | DDRPHYC_PIR_ITMSRST | DDRPHYC_PIR_DRAMINIT | 
 		DDRPHYC_PIR_ICPC | DDRPHYC_PIR_INIT;
-	if (use_slow&0) pir |= BIT(17);  // DLLBYP
+	if (ddr_type & DDRF_SLOW) pir |= BIT(17);  // DLLBYP
 	else pir |= DDRPHYC_PIR_DLLLOCK|DDRPHYC_PIR_QSTRN;
-	if (use_ddr3) pir |= DDRPHYC_PIR_DRAMRST;
+	if (ddr_type != DDRT_2_16) pir |= DDRPHYC_PIR_DRAMRST;
 
 	mod_ddr_reg("pir",pir,0xffffffff);
 	idone_wait(_DDRPHYC);
@@ -248,13 +245,14 @@ int ddr_init(int use_slow,int use_ddr3,int fast_test)
 	mod_ddr_reg("pctrl_0",DDRCTRL_PCTRL_N_PORT_EN,0);
 	mod_ddr_reg("pctrl_1",DDRCTRL_PCTRL_N_PORT_EN,0);
 
-	for(;0;) {
-		mem_test((void*)0xc0000000,8,-1,10);
-		mem_test((void*)0xc0000000,8,0,10);
-	}
 	int mb = 0;
-	if (fast_test || !mem_test((void*)0xc0000000,1,0,0x10a)) 
+	mem_test((void*)0xc0000000,1,-1,0x10a);
+	if (ddr_type & DDRF_FTEST || !mem_test((void*)0xc0000000,1,0,0x10a)) 
 		mb = mem_meas((void*)0xc0000000,1024);
+	if (!(ddr_type & DDRF_FTEST) && 0) {
+		mem_test((void*)0xc0000000,mb,-1,0x10a);
+		mem_test((void*)0xc0000000,mb,0,0x10a);
+	}
 	xprintf("[%d] detected %d MB DDR\n",get_ms_precise(),mb);
 	return mb;
 }
