@@ -15,6 +15,7 @@
 
 #define PINn_18_DISP PM_B(9)
 #define PINn_50V_ON PM_H(13)
+#define PINr_50V_ON PM_I(4)
 #define PIN_RUN_ON PM_G(12)
 #define PINn_SX_RST PM_G(13)
 #define PIN_ETH_RST PM_B(15)
@@ -35,6 +36,57 @@ static void dbg()
 	udelay(1000);
 	gpio_setup_one(PIN_SCL,PM_ALT,4);
 	udelay(1000);
+}
+
+// returns 0/1 or 2 for no-connected
+static __attribute__((noinline)) uint32_t detect_pin_conn(gport_t pin)
+{
+	gpio_setup_one(pin,PM_IN|PM_PU,0);
+	udelay(100);
+	int u = gpio_in(pin);
+	gpio_setup_one(pin,PM_IN|PM_PD,0);
+	udelay(100);
+	int d = gpio_in(pin);
+	gpio_setup_one(pin,PM_AN,0);
+	if (u == d) return u;
+	return 2;
+}
+
+// as detect_pin_conn, but returns 3 if pin connected to pin2 driver
+static __attribute__((noinline)) uint32_t detect_pin_conn2(
+		gport_t pin,gport_t pin2)
+{
+	uint32_t r = detect_pin_conn(pin);
+	if (r<2) return r;
+	gpio_setup_one(pin2,PM_OUT|PM_DFLT(0),0);
+	r = detect_pin_conn(pin);
+	gpio_setup_one(pin2,PM_AN,0);
+	return r ? r : 3;
+}
+
+static char brd_rev;	// portable brd rev
+
+#define PIN_RV0 PM_E(13)
+#define PIN_RV1 PM_D(10)
+static void detect_rev()
+{
+	uint32_t st0,st1;
+	char rtab[16]="..RO" "..S." "P.N." "....";
+	st0 = detect_pin_conn2(PIN_RV0,PIN_RV1);
+	st1 = detect_pin_conn(PIN_RV1);
+	st0 |= st1<<2;
+	brd_rev = rtab[st0];
+	if (brd_rev == '.') brd_rev = 'N';
+	xprintf("detected board rev %c (%d)\n",brd_rev,st0);
+}
+
+static void patch_board_rev(struct boot_param_header *fdt)
+{
+	uint32_t *ptr,*root = lookup_fdt_section(fdt,"/dt-boot",NULL);
+	if (!root) return;
+
+	if (lookup_fdt(fdt,"board-rev",&ptr,root) >= 1) 
+		*(char*)ptr = brd_rev;
 }
 
 static int sx_ok;
@@ -82,7 +134,8 @@ static void disable_power_n()
 	gpio_out(PINn_SX_RST,0);
 	udelay(5000);
 	gpio_out(PIN_RUN_ON,0);
-	gpio_out(PINn_50V_ON,0);
+	gport_t p5V_ON = brd_rev>='R' ? PINr_50V_ON : PINn_50V_ON;
+	gpio_out(p5V_ON,0);
 }
 
 static void regain_mpu_control()
@@ -110,10 +163,24 @@ void reset_hook()
 	disable_power_n();	// proper off sequencing
 }
 
+static void power_off_r() 
+{
+	// send I2C power off command to L052 
+	int res = i2c_wr(I2C2,0x17,"\x05\x00",2,1);
+	if (res) res = i2c_wr(I2C2,0x17,"\x05\x00",2,1); // retry
+	xprintf("[%d] off request sent (%X)\n",get_ms_precise(),res);
+}
+
 #define BT_INSN_STANDBY 1
-// override PSCI power-off handling, set boot insn and reboot
+// override PSCI power-off handling
 int power_off() 
 {
+	if (brd_rev >= 'R') {
+		reset_hook();
+		power_off_r();
+		for (;;) __WFI();
+	}
+	// set boot insn and reboot
 	mp1_set_boot_insn(BT_INSN_STANDBY);
 	reset_hook();
 	return reset_machine();
@@ -200,16 +267,19 @@ static void gen_32k_tim8_1()
 	TIM8->EGR = TIM_EGR_UG;
 }
 
+// really it is compatible with rev N...S
 static void enable_power_n(void *arg)
 {
-	const gport_t outs[] = { PINn_50V_ON,PIN_RUN_ON, PIN_ETH_RST,PINn_18_DISP,
+	const gport_t outs[] = { PIN_RUN_ON, PIN_ETH_RST,PINn_18_DISP,
 		PINn_SX_RST,PINo_EMMCIO_ON,PINo_EMMC_ON, 0 };
 
+	gport_t p5V_ON = brd_rev>='R' ? PINr_50V_ON : PINn_50V_ON;
 	gpio_setup_same(outs,PM_OUT|PM_DFLT(0),0);
+	gpio_setup_one(p5V_ON,PM_OUT|PM_DFLT(0),0);
 	udelay(5000);	// power off briefly
 
 	gpio_out(PIN_RUN_ON,1);
-	gpio_out(PINn_50V_ON,1);
+	gpio_out(p5V_ON,1);
 	udelay(5000);
 	gpio_out(PINn_18_DISP,1);
 	gpio_out(PINn_SX_RST,1);
@@ -241,6 +311,8 @@ static void eth_phy_init(void *arg)
 static int run_portbl(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
+	detect_rev();
+	patch_board_rev(fdt);
 	enable_power_n(NULL);
 	return 0;
 }

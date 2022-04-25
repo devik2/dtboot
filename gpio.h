@@ -43,4 +43,5 @@ void gpio_setup_same(const gport_t *lst,uint16_t mode,uint8_t alt);
 void gpio_setup_one(gport_t port,uint16_t mode,uint8_t alt);
 void gpio_out(gport_t port,int val);
 int gpio_in(gport_t port);
+uint32_t gpio_pin_state(gport_t p);
 #endif
