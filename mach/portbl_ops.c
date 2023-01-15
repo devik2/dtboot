@@ -333,17 +333,23 @@ long tinflate(const void *compressed_data, long compressed_size,
               void *output_buffer, long output_size, unsigned long *crc_ret);
 extern char _binary_mach_logo_black_bg_zz_start[];
 extern char _binary_mach_logo_black_bg_zz_size[];
+extern char _binary_mach_dv_logo_black_bg_zz_start[];
+extern char _binary_mach_dv_logo_black_bg_zz_size[];
 
 // decode logo into buf of size max_fb, fill img structure, 
 // return 0 if ok; img->w is 0 for error
-static int decode_logo(struct simple_image_t *img,void *buf,int max_fb)
+static int decode_logo(struct simple_image_t *img,void *buf,
+		int max_fb,uint32_t image_id)
 {
 	// binary format is 16bit: W,H,pal_size,0 then compressed
 	// palette 3B per item, then pixels (8B aligned)
 	// palette is guaranted to have black at index 0
 	uint8_t *p = _binary_mach_logo_black_bg_zz_start;
 	int rlen = (int)_binary_mach_logo_black_bg_zz_size;
-
+	if (image_id) {
+		p = _binary_mach_dv_logo_black_bg_zz_start;
+		rlen = (int)_binary_mach_dv_logo_black_bg_zz_size;
+	}
 	memcpy(img,p,8); p += 8;
 	img->palsz = (img->pcnt*3 + 7) & 0xff8;
 	img->pixsz = img->h * img->w;
@@ -384,12 +390,16 @@ static void show_logo(const uint8_t *px)
 static int run_logo(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
+	// which logo to display (if we have more)
+	uint32_t iid = 0;
+	fetch_fdt_ints(fdt,root,"image-id",1,1,&iid);
+
 	if (!framebuf.fba || !framebuf.bytes) {
 		xprintf("logo: ERROR: bad framebuffer\n");
 		return -1;
 	}
 	void *sram2 = (void*)0x10020000;
-	decode_logo(&img,sram2,0x10000);
+	decode_logo(&img,sram2,0x10000,iid);
 	show_logo(sram2);
 	return 0;
 }

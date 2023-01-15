@@ -11,6 +11,8 @@ for cc,cn in im.getcolors():
 	pmap[cn] = pa
 
 assert len(pmap)<200
+bg = im.getpixel((0,0))
+print "pix0",bg,"pal_sz",len(pmap)
 
 #im = im.convert() # RGB
 
@@ -22,11 +24,14 @@ for i,p in pmap.items(): # palette
 	arr += struct.pack("BBB",*reversed(p))
 while len(arr) & 7: # align
 	arr += "\0"
+fcnt = 0
 for y in range(im.size[1]): #pixels
 	for x in range(im.size[0]):
 		px = im.getpixel((x,y))
 		arr += struct.pack("B",px+1)
+		if px != bg: fcnt+=1
 
+print "no_fg_pixs",fcnt
 co = struct.pack("HHHH",im.size[0],im.size[1],len(pmap)+1,0) + zlib.compress(arr)
 print len(arr),len(co)
 
