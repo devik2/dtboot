@@ -344,14 +344,11 @@ static int decode_logo(struct simple_image_t *img,void *buf,int max_fb)
 	uint8_t *p = _binary_mach_logo_black_bg_zz_start;
 	int rlen = (int)_binary_mach_logo_black_bg_zz_size;
 
-	struct {
-		uint16_t w,h,pcnt,tmp;
-	} hdr;
 	memcpy(img,p,8); p += 8;
 	img->palsz = (img->pcnt*3 + 7) & 0xff8;
 	img->pixsz = img->h * img->w;
 
-	int sz = tinflate(p,rlen-sizeof(hdr), buf, max_fb, NULL);
+	int sz = tinflate(p,rlen-sizeof(img), buf, max_fb, NULL);
 	if (sz < img->pixsz + img->palsz) {
 		xprintf("can't decode logo image: %d\n",sz);
 		img->w = 0; // mark error
