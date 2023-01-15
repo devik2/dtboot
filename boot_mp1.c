@@ -196,6 +196,27 @@ static void try_boot_insn(int secure)
 	mp1_mctx.boot_insn = 0;
 }
 
+static uint32_t otp57,otp58;
+static void read_secure_otp()
+{
+	RCC->MP_APB5ENSETR = RCC_MC_APB5ENSETR_BSECEN;
+	(void)RCC->MP_APB5ENSETR;
+
+	udelay(100);
+	BSEC->BSEC_OTP_CONFIG = 15; // enable BSEC
+	udelay(1000);
+	while (BSEC->BSEC_OTP_STATUS & BSEC_OTP_STATUS_BUSY);
+	BSEC->BSEC_OTP_CONTROL = 57; // read OTP data
+	udelay(100);
+	while (BSEC->BSEC_OTP_STATUS & BSEC_OTP_STATUS_BUSY);
+	BSEC->BSEC_OTP_CONTROL = 58;
+	udelay(100);
+	while (BSEC->BSEC_OTP_STATUS & BSEC_OTP_STATUS_BUSY);
+
+	otp57 = BSEC->BSEC_OTP_DATA[57]; // MAC address
+	otp58 = BSEC->BSEC_OTP_DATA[58];
+}
+
 // we are entering in secure SVC mode
 void main(const boot_api_context_t *ctx)
 {
@@ -225,6 +246,7 @@ void main(const boot_api_context_t *ctx)
 
 	set_tz_sec();
 	stm32mp_init_gic(0);
+	read_secure_otp();
 	int nons = mp1_mctx.boot_flags[BFI_NONS];
 	if (nons<0) nons = 0;
 	// TODO: following check must be always true for authenticated
@@ -312,6 +334,22 @@ static int stm8_read(int cmd,int sz,uint8_t *buf)
 	return res;
 }
 
+static int patch_mac_address(struct boot_param_header *fdt,
+		uint32_t *root,const uint8_t *buf)
+{
+	uint32_t ph = 0;
+	fetch_fdt_ints(fdt,root,"patch-mac-to",1,1,&ph);
+	if (!ph) return -1;
+
+	uint32_t *p,*hdl = lookup_fdt_by_phandle(fdt,ph,NULL);
+	if (!hdl) return -2;
+	if (lookup_fdt(fdt,"local-mac-address",&p,hdl)!=6) return -3;
+	xprintf("patching MAC address %02X:%02X:%02X:%02X:%02X:%02X\n",
+		buf[0],buf[1],buf[2],buf[3],buf[4],buf[5]);
+	memcpy(p,buf,6);
+	return 0;
+}
+
 static int run_stm8(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
@@ -357,19 +395,33 @@ static int run_stm8(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		xprintf("read zero MAC from STM8\n");
 		return -2;
 	}
-	uint32_t ph = 0;
-	fetch_fdt_ints(fdt,root,"patch-mac-to",1,1,&ph);
-	if (ph) do {
-		uint32_t *p,*hdl = lookup_fdt_by_phandle(fdt,ph,NULL);
-		if (!hdl) break;
-		if (lookup_fdt(fdt,"local-mac-address",&p,hdl)!=6) break;
-		xprintf("patching MAC address %02X:%02X:%02X:%02X:%02X:%02X\n",
-			buf[0],buf[1],buf[2],buf[3],buf[4],buf[5]);
-		memcpy(p,buf,6);
-	} while(0);
+	patch_mac_address(fdt,root,buf);
 	return 0;
 }
 
 DECLARE_MOD(mp1_stm8) {
 	.name = "mp1,stm8", .run = run_stm8
+};
+
+static int run_otp(struct module_desc_t *dsc,struct boot_param_header *fdt,
+		uint32_t *root)
+{
+	uint8_t mac[6] = { 0x70,0xB3,0xD5,0xDC,0x10,0 };
+
+	if (!otp57 && !otp58) return -1;
+	if (!otp57) {
+		// special hack to allocate our own MAC range
+		// without messing with regular OTP bits - it
+		// allows for other MAC later
+		memcpy(mac+4,((uint8_t*)&otp58)+2,2);
+	} else {
+		memcpy(mac,(uint8_t*)&otp57,4);
+		memcpy(mac+4,(uint8_t*)&otp58,2);
+	}
+	patch_mac_address(fdt,root,mac);
+	return 0;
+}
+
+DECLARE_MOD(mp1_otp) {
+	.name = "mp1,otp", .run = run_otp
 };
