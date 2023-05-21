@@ -196,6 +196,15 @@ static void try_boot_insn(int secure)
 	mp1_mctx.boot_insn = 0;
 }
 
+__attribute__ ((weak)) void hook_boot_secure()
+{
+}
+
+static void call_secure_hook()
+{
+	if (hook_boot_secure) hook_boot_secure();
+}
+
 static uint32_t otp57,otp58;
 static void read_secure_otp()
 {
@@ -243,6 +252,7 @@ void main(const boot_api_context_t *ctx)
 	stgen_setup(64000,0,0);	// preliminary timer for delays
 	coro_init();  // udelay becomes available
 	try_boot_insn(1);
+	call_secure_hook();
 
 	set_tz_sec();
 	stm32mp_init_gic(0);
