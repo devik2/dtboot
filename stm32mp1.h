@@ -6,6 +6,7 @@
 #include "stm32mp157axx_cm4.h"
 #include "system.h"
 
+// 0x83...... means "normal OEM 32bit calls"
 #define SMC_SET_FREQ  0x83000101
 #define SMC_DUMP_INFO 0x83000102
 #define SMC_NSEC 0x83000103
