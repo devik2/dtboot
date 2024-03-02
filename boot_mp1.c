@@ -68,6 +68,13 @@ int get_VBAR();
 int get_MVBAR();
 extern int p_scr;
 uint32_t psci_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3);
+
+__attribute__ ((weak))
+uint32_t smc_mach_hook(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
+{
+	return -1;
+}
+
 uint32_t smc_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 {
 	xprintf("[%d] SMC %X %X %X %X %X pscr:%X\n",
@@ -89,6 +96,8 @@ uint32_t smc_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 	}
 	if ((cmd & 0xff000000) == 0x84000000)
 		return psci_handler(cmd,a1,a2,a3);
+	if ((cmd & 0xff00ff00) == SMC_MACH)
+		return smc_mach_hook(cmd,a1,a2,a3);
 	return -1;
 }
 #endif
@@ -127,6 +136,8 @@ static void common_gpios_preinit()
 	gpio_setup_one(PIN_QCLK_EN, PM_IN|PM_PU,0);
 }
 
+__attribute__ ((weak)) void linux_mach_hook() { }
+
 void linux_enter_hook()
 {
 	int nons = mp1_mctx.boot_flags[BFI_NONS];
@@ -134,6 +145,7 @@ void linux_enter_hook()
 
 	// turn red led off (boot done)
 	gpio_setup_one(PIN2_LED2, PM_OUT|PM_DFLT(1),0);
+	linux_mach_hook();
 }
 
 // MP1 starts on HSI, prepare main console on some default
@@ -258,6 +270,9 @@ void main(const boot_api_context_t *ctx)
 	stm32mp_init_gic(0);
 	read_secure_otp();
 	int nons = mp1_mctx.boot_flags[BFI_NONS];
+
+	call_secure_hook();	// call after set_tz_sec so we can modify it
+
 	if (nons<0) nons = 0;
 	// TODO: following check must be always true for authenticated
 	// image (once implemented) to maintain security

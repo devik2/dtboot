@@ -28,7 +28,7 @@ static int tc58_init(struct mtd_dev_t *dev)
 {
 	// Linux sometimes disables ECC and after reset
 	// it can't boot
-	uint32_t b0 = mtd_nand_get_feat(0xa0);
+	uint32_t b0 = mtd_nand_get_feat(0xb0);
 	if ((b0 & 0x10)==0) {
 		xprintf("NAND, (re)enable ECC (B0=%X)\n",b0);
 		mtd_nand_set_feat(0xb0,0x13);
