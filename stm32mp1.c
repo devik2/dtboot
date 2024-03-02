@@ -457,7 +457,21 @@ void gpio_setup_same(const gport_t *lst,uint16_t mode,uint8_t alt)
 	for (;*lst;lst++) gpio_setup_one(*lst,mode,alt);
 }
 
+// returns 0,1 (hard strapped) or 2 (floating)
+__attribute__((noinline)) uint32_t gpio_pin_state(gport_t p)
+{
+	gpio_setup_one(p,PM_IN|PM_PU,0);
+	udelay(10);
+	int a = gpio_in(p);
+	gpio_setup_one(p,PM_IN|PM_PD,0);
+	udelay(10);
+	int b = gpio_in(p);
+	if (a != b) return 2;
+	return a;
+}
+
 #define PIN2_OSCEN PM_Z(5)
+#define PIN3_MARK PM_H(10) // EXMP1 marker
 
 // SOMP1 uses pulldown on OSC EN but OSC's internal pullup is
 // stronger. Fortunately one can force it down and OSC removes
@@ -484,7 +498,12 @@ static int run_hse(struct module_desc_t *dsc,struct boot_param_header *fdt,
 			xprintf("Can start no HSE\n");
 			return -1;
 		}
+	} else {
+		// take oportunity and detect EXMP board, it has PH10 not
+		// floating
+		if (gpio_pin_state(PIN3_MARK) != 2) ctx->lump_rev = 2;
 	}
+	xprintf("HSE started, board_rev detected: %d\n",ctx->lump_rev);
 	return 0;
 }
 

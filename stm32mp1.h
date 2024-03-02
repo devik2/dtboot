@@ -48,7 +48,7 @@ struct stm32mp1_mctx {
 	struct machine_ctx_t ctx;	// parent
 	const boot_api_context_t *bctx; // given by ROM bootloader
 	int8_t boot_flags[16];		// 0xff (-1) for unset flag
-	uint8_t lump_rev;	// 0=orig,1=with stm8
+	uint8_t lump_rev;	// 0=orig,1=with stm8,2=exmp1
 	uint8_t boot_insn;	// extra boot request from linux
 };
 
