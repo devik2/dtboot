@@ -14,10 +14,33 @@ BB at EB 1537 (0 0)
 // MP1 CFG9, TC58: 0xA0420000 1 01 0|0 000|0100|0 0 10|0 (4k/64/2048)
 // MP1 CFG9, W25N: 0x80220000 1 00 0|0 000|0010|0 0 10|0 (2k/64/1024)
 
+static int w25n_init(struct mtd_dev_t *dev)
+{
+	uint32_t b0 = mtd_nand_get_feat(0xb0);
+	if ((b0 & 8)==0) {
+		xprintf("NAND, turn cont. mode off (B0=%X)\n",b0);
+		mtd_nand_set_feat(0xb0,b0|8);
+	}
+	return 0;
+}
+
+static int tc58_init(struct mtd_dev_t *dev)
+{
+	// Linux sometimes disables ECC and after reset
+	// it can't boot
+	uint32_t b0 = mtd_nand_get_feat(0xa0);
+	if ((b0 & 0x10)==0) {
+		xprintf("NAND, (re)enable ECC (B0=%X)\n",b0);
+		mtd_nand_set_feat(0xb0,0x13);
+	}
+	return 0;
+}
+
 static struct mtd_chip_t fchips[] = {
 	// flags,pgsh,ebsh,,wr_sh,eccsh,ebcnt,id
-	{ MTDF_NAND|MTDF_CONT,11,6,0,11,6,1024,0xaaef,0xffff,"W25N01GV" },
-	{ MTDF_NAND,12,6,0,12,7,2048,0xed98,0xffff,"TC58CVG2S0HRAIJ" },
+	{ MTDF_NAND,11,6,0,11,6,1024,0xaaef,0xffff,"W25N01GV", w25n_init },
+	{ MTDF_NAND,12,6,0,12,7,2048,0xed98,0xffff,"TC58CVG2S0HRAIJ",
+		tc58_init },
 	{ MTDF_NAND|MTDF_RDRAND,11,6,0,11,7,1024,0x142C,0xffff,"MT29F1G01_3V3" },
 	{ MTDF_NAND|MTDF_RDRAND|MTDF_2PL,
 		11,6,0,11,7,2048,0x242C,0xffff,"MT29F2G01" },

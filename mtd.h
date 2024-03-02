@@ -7,8 +7,8 @@
 
 #define MTDF_RDRAND 0x10	// Micron style read random supported
 #define MTDF_2PL 0x20		// dual plane
-#define MTDF_CONT 0x40		// check for continuous mode (winbond)
 #define MTDF_DYN 0x80		// dynamic record
+struct mtd_dev_t;
 struct mtd_chip_t {
 	uint8_t flags;		// MTDF_XXX
 	uint8_t page_sh;	// page size shift
@@ -20,6 +20,7 @@ struct mtd_chip_t {
 	uint32_t id;
 	uint32_t id_mask;
 	const char *name;	// name of chip type
+	int (*init_fn)(struct mtd_dev_t *dev);
 };
 
 #define MTDRF_SKIPBB 1	// read only good blks, return no of skipped blks
@@ -41,6 +42,8 @@ struct mtd_dev_t {
 const struct mtd_chip_t *mtd_lookup_flash(uint32_t id);
 void mtd_dump_page(struct mtd_dev_t *dev,uint32_t p,int sz);
 void dump_mem(const uint8_t *p,int sz);
+int mtd_nand_get_feat(unsigned addr);
+int mtd_nand_set_feat(unsigned addr,unsigned val);
 
 // detects chip on QSPI bus id and fills dev struct, return 0 if ok
 // nonzero flags means to use slow clock

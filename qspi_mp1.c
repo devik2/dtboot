@@ -261,18 +261,23 @@ static int nor_write_page(struct mtd_dev_t *dev,uint32_t pg,const uint8_t *buf,i
 	return sts & 0x40 ? -2 : 0;
 }
 
-static void nand_continuous_off()
+int mtd_nand_get_feat(unsigned addr)
 {
 	uint32_t buf;
-	qspi_xact(0xf,0xb0,QMO_RD|QAD(1),&buf,1);
+	qspi_xact(0xf,addr & 0xff,QMO_RD|QAD(1),&buf,1);
 	qspi_wait();
-	buf &= 0xff;
-	if ((buf & 8)==0) {
-		xprintf("NAND, turn cont. mode off (st=%X)\n",buf);
-		qspi_xact(0x1f,0xb000|buf|8,QAD(2),NULL,0);
-	}
-	qspi_wait();
+	return buf & 0xff;
 }
+
+int mtd_nand_set_feat(unsigned addr,unsigned val)
+{
+	addr = (addr<<8) & 0xff00;
+	val &= 0xff;
+	qspi_xact(0x1f,addr|val,QAD(2),NULL,0);
+	qspi_wait();
+	return 0;
+}
+
 #if 0
 static void nand_wait()
 {
@@ -313,10 +318,10 @@ int mtd_detect_qspi(struct mtd_dev_t *dev,int bus,int flags)
 	dev->drv_priv[0] = bus;
 	dev->drv_priv[1] = 2; // paralel bits for QSPI reading
 	dev->erase = flash_erase;
+	if (chip->init_fn) chip->init_fn(dev);
 	if (nand) {
 		dev->read_page = nand_read_page;
 		dev->write_page = nand_write_page;
-		if (chip->flags & MTDF_CONT) nand_continuous_off();
 	} else {
 		dev->read_page = nor_read_page;
 		dev->write_page = nor_write_page;
