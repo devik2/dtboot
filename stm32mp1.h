@@ -3,7 +3,11 @@
 
 #include <stdint.h>
 #include "boot_api.h"
-#include "stm32mp157axx_cm4.h"
+#if MPU_TYPE == 15
+ #include "stm32mp157axx_cm4.h"
+#elif MPU_TYPE == 13
+ #include "stm32mp135cxx_ca7.h"
+#endif
 #include "system.h"
 
 // 0x83 is for 32bit OEM calls
@@ -33,6 +37,7 @@ void somp1_disable_osc();
 void i2c_setup(I2C_TypeDef *I2C);
 int i2c_wr(I2C_TypeDef *I2C,int addr,const char *data,int len,int aut);
 int i2c_rd(I2C_TypeDef *I2C,int addr,char *buf,int len);
+void cache_dbg_idc_register();
 const char *mp1_get_rpn_name();
 
 // Boot flags: each can have value 0..15 or undefined (-1)

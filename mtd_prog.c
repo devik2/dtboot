@@ -1,4 +1,5 @@
 #include <string.h>
+#include "stm32mp1.h"
 #include "system.h"
 #include "mtd.h"
 #include "gpio.h"
@@ -188,6 +189,42 @@ static void pintest()
 	}
 }
 
+#define SPI SPI1
+static void spi_info()
+{
+	xprintf("spi sr=0x%X\n",SPI->SR);
+}
+
+static void spitest()
+{
+	xprintf("run spitest2\n");
+	RCC->MP_APB1ENSETR = RCC_MP_APB1ENSETR_SPI2EN;
+	RCC->MP_APB2ENSETR = RCC_MP_APB2ENSETR_SPI1EN;
+	(void)RCC->MP_APB1ENSETR;
+	RCC->CPERCKSELR = 0;
+	RCC->SPI2S23CKSELR = 3;
+	RCC->SPI2S1CKSELR = 3;
+	gpio_setup_one(PM_H(6),PM_OUT|PM_ALT,5);
+	gpio_setup_one(PM_H(10),PM_OUT|PM_ALT,6);
+	gpio_setup_one(PM_G(1),PM_IN|PM_ALT,5);
+
+	gpio_setup_one(PM_A(7),PM_OUT|PM_ALT,5); // SPI1CLK at EXP_CS2
+	gpio_setup_one(PM_A(3),PM_OUT|PM_ALT,5);
+	gpio_setup_one(PM_A(6),PM_IN|PM_ALT,5);
+
+	SPI->CR1 = SPI_CR1_SSI;
+	SPI->CFG1 = SPI_CFG1_MBR_2|7;
+	SPI->CFG2 = SPI_CFG2_AFCNTR|SPI_CFG2_SSM|SPI_CFG2_CPHA|SPI_CFG2_CPOL|SPI_CFG2_MASTER|0x11;
+	SPI->CR2 = 4;
+	spi_info();
+	SPI->CR1 = SPI_CR1_SSI|SPI_CR1_SPE;
+	SPI->TXDR = 0xaabbccdd;
+	SPI->IFCR = 0xffff;
+	spi_info();
+	SPI->CR1 = SPI_CR1_SSI|SPI_CR1_SPE|SPI_CR1_CSTART;
+	spi_info();
+}
+
 void prog_ext()
 {
 	if (!prog_dev) {
@@ -203,6 +240,7 @@ void prog_ext()
 	if (prog_s == 5) { dump_bbt(); goto pend; }
 #endif
 	if (prog_s == 6) { pintest(); goto pend; }
+	if (prog_s == 7) { spitest(); goto pend; }
 	const struct mtd_chip_t *chip = prog_dev->chip;
 	xprintf("ext program from %X to %s at %X sz %d\n",
 			prog_s,chip->name,prog_a,prog_l);

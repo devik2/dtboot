@@ -35,13 +35,13 @@ ebflags:.byte 0x12	@ UART1 at PA9
 	@ 0x48, git revision pointer
 	.word git_version
 mstk2:	.word 0x2ffe0000
-mstk:	.word 0x2ffdf000
+mstk:	.word _mstk
 p_scr:	.word 0			@ SCR on SMC entry stored here
 	.globl p_scr,ebflags
 run:	mov r10, #0
 	b run_cmn
 reset:  mov r10, r0		@ boot context
-	.extern main
+	.extern main,_mstk
 
 	.macro set_mode m
 	mrs	r2, cpsr

@@ -4,7 +4,7 @@
 #include "system.h"
 #include "xprintf.h"
 #include "gpio.h"
-#include "stm32mp157axx_cm4.h"
+#include "stm32mp1.h"
 
 static void start_linux(uint32_t start,uint32_t dtb)
 {

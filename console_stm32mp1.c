@@ -5,7 +5,6 @@
 #include "coro.h"
 #include "gpio.h"
 #include "fdt.h"
-#include "stm32mp157axx_cm4.h"
 
 static uint8_t *tbuf;
 
@@ -116,7 +115,9 @@ struct mp1_uart_txs_t {
 	uint8_t pin;
 	uint8_t	uart:4;
 	uint8_t	conf:4;
-} static const mp1_uart_txs[] = {
+};
+
+struct mp1_uart_txs_t static const mp15_uart_txs[32] = {
 	{ PM_A(0),4,8 }, { PM_A(2),2,7 }, { PM_A(9),1,7 }, { PM_A(12),4,6 },
 	{ PM_A(13),4,8 }, { PM_A(15),7,13 }, { PM_B(4),7,13 }, { PM_B(6),1,7 },
 	{ PM_B(6),5,12 }, { PM_B(9),4,8 }, { PM_B(10),3,7 }, { PM_B(13),5,14 },
@@ -124,17 +125,28 @@ struct mp1_uart_txs_t {
 	{ PM_C(10),4,8 }, { PM_C(12),5,8 }, { PM_D(1),4,8 }, { PM_D(5),2,7 },
 	{ PM_D(8),3,7 }, { PM_E(1),8,8 }, { PM_E(8),7,7 }, { PM_F(5),2,7 },
 	{ PM_F(7),7,7 }, { PM_G(11),1,4 }, { PM_G(11),4,6 }, { PM_G(14),6,7 },
-	{ PM_H(13),4,8 }, { PM_Z(2),1,7 }, { PM_Z(7),1,7 }
+	{ PM_H(13),4,8 }, { PM_Z(2),1,7 }, { PM_Z(7),1,7 }, { 0,0,0 }
+};
+
+struct mp1_uart_txs_t static const mp13_uart_txs[32] = {
+	{ PM_A(0),5,8 }, { PM_A(2),2,7 }, { PM_A(9),1,7 }, { PM_A(9),4,8 },
+	{ PM_A(13),4,8 },{ PM_B(6),1,4 }, { PM_B(9),5,11 },{ PM_B(13),5,11 },
+	{ PM_B(14),1,4 },{ PM_C(0),1,7 }, { PM_C(10),3,7 },{ PM_C(12),7,8 },
+	{ PM_D(1),4,8 }, { PM_D(6),4,8 }, { PM_D(8),2,3 }, { PM_D(8),3,7 },
+	{ PM_E(1),8,8 }, { PM_E(4),8,8 }, { PM_E(7),5,8 }, { PM_E(8),7,7 },
+	{ PM_F(7),7,7 }, { PM_F(8),6,7 }, { PM_F(11),2,1 },{ PM_F(12),4,8 },
+	{ PM_F(13),2,7 },{ PM_G(11),3,7 },{ PM_G(11),4,8 },{ PM_G(14),6,7 },
+	{ PM_H(2),7,8 }, { PM_H(12),2,1 },{ PM_H(13),4,8 }, {0,0,0}
 };
 
 // sets given TX line up and returns UART id (0 for error)
 // if up=0, pin is de-setup (set as analog)
 uint32_t mp1_uart_tx_setup(uint32_t seq,int up)
 {
-	if (seq>=sizeof(mp1_uart_txs)/sizeof(struct mp1_uart_txs_t))
-		return 0;
-
-	const struct mp1_uart_txs_t *u = mp1_uart_txs + seq;
+	if (seq>=32) return 0;
+	const char *rpn = mp1_get_rpn_name();
+	const struct mp1_uart_txs_t *u = 
+		(rpn[3]=='3' ? mp13_uart_txs:mp15_uart_txs) + seq;
 	gpio_setup_one(u->pin,up ? PM_OUT|PM_ALT:PM_AN,u->conf);
 	return u->uart;
 }
@@ -145,7 +157,8 @@ struct mp1_usart_info_t {
 	uint16_t rcc_ck_src;
 	uint8_t rcc_en_bit;
 	uint8_t rcc_ck_map;
-} static const mp1_usart_info[] = {
+};
+struct mp1_usart_info_t static const mp15_usart_info[] = {
 	{ 0x5C000000,0x208,0xC8,4,0x25 },
 	{ 0x4000E000,0xA00,0x8E8,14,0x24 },
 	{ 0x4000F000,0xA00,0x8EC,15,0x24 },
@@ -154,13 +167,25 @@ struct mp1_usart_info_t {
 	{ 0x44003000,0xA08,0x8E4,13,0x24 },
 	{ 0x40018000,0xA00,0x8F0,18,0x24 },
 	{ 0x40019000,0xA00,0x8F0,19,0x24 }
+}; 
+struct mp1_usart_info_t static const mp13_usart_info[] = {
+	{ 0x4C000000,0x748,0x614,0,0x25 },
+	{ 0x4C001000,0x748,0x614,1,0x25 },
+	{ 0x00000000,0x000,0x000,0,0x00 },
+	{ 0x00000000,0x000,0x000,0,0x00 },
+	{ 0x00000000,0x000,0x000,0,0x00 },
+	{ 0x00000000,0x000,0x000,0,0x00 },
+	{ 0x00000000,0x000,0x000,0,0x00 },
+	{ 0x40019000,0x700,0x624,19,0x24 }
 };
 
 // returns USART pointer and sets its clock to clk (0=HSI,1=HSE)
 USART_TypeDef *mp1_get_uart(uint32_t uid,uint32_t clk)
 {
 	if (!uid || uid>8) return NULL;
-	const struct mp1_usart_info_t *u = mp1_usart_info + uid-1;
+	const char *rpn = mp1_get_rpn_name();
+	const struct mp1_usart_info_t *u =
+		(rpn[3]=='3' ? mp13_usart_info:mp15_usart_info) + uid-1;
 	volatile uint32_t *rcc = (void*)0x50000000;
 	rcc[u->rcc_ck_src/4] = (u->rcc_ck_map >> (clk?0:4)) & 0xf;
 	rcc[u->rcc_en_off/4] = 1<<u->rcc_en_bit;

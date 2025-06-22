@@ -4,7 +4,6 @@
 #include "system.h"
 #include "xprintf.h"
 #include "coro.h"
-#include "stm32mp157axx_cm4.h"
 #include "fdt.h"
 #include "uimage.h"
 #include "mtd.h"
@@ -29,6 +28,10 @@
 #define PIN2_ACK PM_F(14)
 #define PIN2_SDA PM_Z(1)
 #define PIN2_SCL PM_Z(4)
+
+// MP13
+#define PIN3_GLED PM_A(13)
+#define PIN3_RLED PM_A(14)
 
 struct stm32mp1_mctx mp1_mctx;
 const char git_version[] = GIT;
@@ -103,10 +106,16 @@ uint32_t smc_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 #endif
 //void prep_cpu2();
 
+extern char _mstk[];
+__attribute__((noinline))
 static uint32_t *prescan_fdt(struct mtd_dev_t *mtd,int alt)
 {
 	// load fdt from flash
+#if MPU_TYPE==15
 	void *buf = (void*)FDT_BUFA;
+#else
+	void *buf = _mstk;
+#endif
 	image_header_t hdr;
 	if (prep_uimage(mtd,alt ? FTD_POS2:FTD_POS1,&hdr,PUF_CRC,buf)==-1) {
 		panic("can't read FDT%d!\n",alt);
@@ -126,6 +135,7 @@ static uint32_t *prescan_fdt(struct mtd_dev_t *mtd,int alt)
 // can be called for both LUMP rev1 and 2
 static void common_gpios_preinit()
 {
+#if MPU_TYPE == 15
 	const gport_t outs[] = { PIN_DDR_EN, PIN_DDR_STOP, PIN_3V_STOP, 
 			PIN_GLED, PIN2_LED2, 0 };
 	gpio_setup_same(outs,PM_OUT|PM_DFLT(0),0);
@@ -134,6 +144,10 @@ static void common_gpios_preinit()
 	// in case we are on rev2
 	// TODO: remove it as v1 is unsupported ?
 	gpio_setup_one(PIN_QCLK_EN, PM_IN|PM_PU,0);
+#elif MPU_TYPE == 13
+	const gport_t outs[] = { PIN3_GLED, PIN3_RLED, 0 };
+	gpio_setup_same(outs,PM_OUT|PM_DFLT(0),0);
+#endif
 }
 
 __attribute__ ((weak)) void linux_mach_hook() { }
@@ -143,13 +157,16 @@ void linux_enter_hook()
 	int nons = mp1_mctx.boot_flags[BFI_NONS];
 	if (nons>0 && nons & 4) asm("bkpt");
 
+#if MPU_TYPE == 15
 	// turn red led off (boot done)
 	gpio_setup_one(PIN2_LED2, PM_OUT|PM_DFLT(1),0);
+#endif
 	linux_mach_hook();
 }
 
 // MP1 starts on HSI, prepare main console on some default
 // pins. It will be replaced once HSE and DT is available
+__attribute__((noinline))
 static void mp1_initial_console()
 {
 	const int div = 64*1000000/115200; // divide HSI osc
@@ -166,13 +183,20 @@ static void mp1_initial_console()
 			get_ms_precise(),uart,git_version);
 }
 
+__attribute__ ((weak)) int ddr_init(uint32_t type)
+{
+	return 0;
+}
+
 static void ddr_init_local(uint32_t ddr_type)
 {
+#if MPU_TYPE == 15
 	gpio_setup_one(PIN_DDR_EN,PM_OUT|PM_DFLT(1),0);
 	udelay(10000);
+#endif
 	mctx->ddr_mb = ddr_init(ddr_type); 
-	xprintf("[%d] DDR done. (%X,%dMB)\n",get_ms_precise(),
-			GPIOZ->ODR,mctx->ddr_mb);
+	xprintf("[%d] DDR done. (%dMB)\n",get_ms_precise(),
+			mctx->ddr_mb);
 }
 
 extern uint32_t prog_x; // to detect prog mode
@@ -212,15 +236,10 @@ __attribute__ ((weak)) void hook_boot_secure()
 {
 }
 
-static void call_secure_hook()
-{
-	if (hook_boot_secure) hook_boot_secure();
-}
-
 static uint32_t otp57,otp58;
 static void read_secure_otp()
 {
-	RCC->MP_APB5ENSETR = RCC_MC_APB5ENSETR_BSECEN;
+	RCC->MP_APB5ENSETR = RCC_MP_APB5ENSETR_BSECEN;
 	(void)RCC->MP_APB5ENSETR;
 
 	udelay(100);
@@ -241,21 +260,21 @@ static void read_secure_otp()
 // we are entering in secure SVC mode
 void main(const boot_api_context_t *ctx)
 {
-	RCC->MP_AHB4ENSETR = RCC_MC_AHB4ENSETR_GPIOAEN|RCC_MC_AHB4ENSETR_GPIOBEN|
-		RCC_MC_AHB4ENSETR_GPIOCEN|RCC_MC_AHB4ENSETR_GPIODEN|
-		RCC_MC_AHB4ENSETR_GPIOEEN|RCC_MC_AHB4ENSETR_GPIOFEN|
-		RCC_MC_AHB4ENSETR_GPIOGEN|RCC_MC_AHB4ENSETR_GPIOHEN|
-		RCC_MC_AHB4ENSETR_GPIOIEN;
-	RCC->MP_AHB5ENSETR = RCC_MC_AHB5ENSETR_GPIOZEN;
-	RCC->MP_APB3ENSETR = RCC_MC_APB3ENSETR_SYSCFGEN;
-	RCC->MP_AHB6ENSETR = RCC_MC_AHB6ENSETR_CRC1EN;
-	RCC->MP_APB5ENSETR = RCC_MC_APB5ENSETR_STGENEN;
+	RCC->MP_S_AHB4ENSETR = RCC_MP_S_AHB4ENSETR_GPIOAEN|RCC_MP_S_AHB4ENSETR_GPIOBEN|
+		RCC_MP_S_AHB4ENSETR_GPIOCEN|RCC_MP_S_AHB4ENSETR_GPIODEN|
+		RCC_MP_S_AHB4ENSETR_GPIOEEN|RCC_MP_S_AHB4ENSETR_GPIOFEN|
+		RCC_MP_S_AHB4ENSETR_GPIOGEN|RCC_MP_S_AHB4ENSETR_GPIOHEN|
+		RCC_MP_S_AHB4ENSETR_GPIOIEN;
+	RCC->MP_S_APB3ENSETR = RCC_MP_S_APB3ENSETR_SYSCFGEN;
+	RCC->MP_AHB6ENSETR = RCC_MP_AHB6ENSETR_CRC1EN;
+	RCC->MP_APB5ENSETR = RCC_MP_APB5ENSETR_STGENCEN;
 	memset(_bss_start,0,_bss_end-_bss_start);
 
 	mctx = &mp1_mctx.ctx;
+#if MPU_TYPE == 15
 	// ack supervisor MCU
 	gpio_setup_one(PIN2_ACK,PM_OUT|PM_DFLT(0),0);
-
+#endif
 	// set by debugger or OS to modify boot behaviour
 	mp1_read_boot_flags(&mp1_mctx);
 
@@ -264,14 +283,14 @@ void main(const boot_api_context_t *ctx)
 	stgen_setup(64000,0,0);	// preliminary timer for delays
 	coro_init();  // udelay becomes available
 	try_boot_insn(1);
-	call_secure_hook();
 
 	set_tz_sec();
 	stm32mp_init_gic(0);
 	read_secure_otp();
+	cache_dbg_idc_register();
 	int nons = mp1_mctx.boot_flags[BFI_NONS];
 
-	call_secure_hook();	// call after set_tz_sec so we can modify it
+	hook_boot_secure(); // call after set_tz_sec so we can modify it
 
 	if (nons<0) nons = 0;
 	// TODO: following check must be always true for authenticated
@@ -283,9 +302,11 @@ void main(const boot_api_context_t *ctx)
 
 	mp1_initial_console();
 	mp1_show_boot_flags();
-	if (nons & 2 && !prog_x) asm("bkpt");
-
-	//call_smc(SMC_DUMP_INFO,0,0);
+	if (nons & 2 && !prog_x) {
+		BSEC->BSEC_DENABLE = 0x47f;
+		asm("bkpt");
+	}
+	call_smc(SMC_DUMP_INFO,0,0);
 
 	// init MTD to get FDT
 	struct mtd_dev_t mtd;
@@ -311,6 +332,7 @@ void main(const boot_api_context_t *ctx)
 	// rest of init is controled by DT
 	run_modules(mctx->fdt,fdt_cob,nons & 8);
 
+	console_sync();
 	asm("bkpt");
 	for (;;) __WFI();
 }
@@ -375,6 +397,7 @@ static int patch_mac_address(struct boot_param_header *fdt,
 	return 0;
 }
 
+#if MPU_TYPE == 15
 void setup_dma_sniffer();
 static int run_stm8(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
@@ -436,18 +459,21 @@ static int run_stm8(struct module_desc_t *dsc,struct boot_param_header *fdt,
 DECLARE_MOD(mp1_stm8) {
 	.name = "mp1,stm8", .run = run_stm8
 };
+#endif
 
 static int run_otp(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
-	uint8_t mac[6] = { 0x70,0xB3,0xD5,0xDC,0x10,0 };
+	uint8_t mac[6] = { 0x70,0xB3,0xD5,0xDC,0x10,0 }; // Metralight range 1
 
+	if (otp57 < 5) otp57 = 0; // some MPs has small weird value here
 	if (!otp57 && !otp58) return -1;
 	if (!otp57) {
 		// special hack to allocate our own MAC range
 		// without messing with regular OTP bits - it
 		// allows for other MAC later
-		memcpy(mac+4,((uint8_t*)&otp58)+2,2);
+		memcpy(mac+4,((uint8_t*)&otp58)+2,2); // use 2MSB only
+		if ((mac[3]>>4) == 8) mac[3] = 0x15; // EAX range 1
 	} else {
 		memcpy(mac,(uint8_t*)&otp57,4);
 		memcpy(mac+4,(uint8_t*)&otp58,2);

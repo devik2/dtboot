@@ -6,7 +6,7 @@
 #include "gpio.h"
 #include "system.h"
 #include "fdt.h"
-#include "stm32mp1_ddr_regs.h"
+//#include "stm32mp1_ddr_regs.h"
 
 #define S_GPIO_MODER(G,P,M) S_BITFLD(G->MODER,P*2,2,M);
 #define S_GPIO_OSPEEDR(G,P,S) S_BITFLD(G->OSPEEDR,P*2,2,S);
@@ -70,47 +70,71 @@ static void csi_on()
 
 static void compensation_on()
 {
-	RCC->MP_APB3ENSETR = RCC_MC_APB3ENSETR_SYSCFGEN;
+#if MPU_TYPE == 13
+	xprintf("TODO: COMP skip because prob on MP13\n");
+#else
+	RCC->MP_NS_APB3ENSETR = RCC_MP_NS_APB3ENSETR_SYSCFGEN;
+	(void)RCC->MP_NS_APB3ENSETR;
 	SYSCFG->CMPENSETR = 1;
 	while (!(SYSCFG->CMPCR & SYSCFG_CMPCR_READY)) coro_yield();
 	SYSCFG->CMPCR &= ~SYSCFG_CMPCR_SW_CTRL;
 	xprintf("COMPensation on\n");
+#endif
 }
 
-static const uint32_t pll_btab[4] = { 0x80,0x94,0x880,0x894 };
+//static const uint32_t pll_btab[4] = { 0x80,0x94,0x880,0x894 };
+#define PLLBASE(n) &(RCC->PLL ## n ## CR)
+#define PLLOFF(n) offsetof(RCC_TypeDef,PLL ## n ## CR)
+#define PLLFLD(ptr,f) ptr[(offsetof(RCC_TypeDef,f)-offsetof(RCC_TypeDef,PLL1CR))/4]
+
+struct pll_info {
+	volatile uint32_t *base;
+	uint16_t min_in;	// min input freq in khz, max 16MHz
+	uint16_t min_vco;	// in MHz
+	uint16_t max_vco;
+	uint8_t min_k,max_k;	// loop divider
+} static const pll_inf[4] = {
+#if MPU_TYPE == 15
+	{ PLLBASE(1),8000,400,800,25,100 },{ PLLBASE(2),8000,400,800,25,100 },
+	{ PLLBASE(3),4000,400,800,25,200 },{ PLLBASE(4),4000,400,800,25,200 }
+#elif MPU_TYPE == 13
+	{ PLLBASE(1),8000,496,999,31,125 },{ PLLBASE(2),8000,400,800,25,100 },
+	{ PLLBASE(3),4000,400,800,25,200 },{ PLLBASE(4),4000,400,800,25,200 }
+#endif
+};
 
 static void stop_pll(int n)
 {
-	volatile uint32_t *P = (uint32_t*)((char*)RCC_BASE + pll_btab[n-1]);
-	P[0] = 3; // disable dividers
-	P[0] = 2;
-	while (P[0] & 2) coro_yield();
+	volatile uint32_t *P = pll_inf[n-1].base;
+	PLLFLD(P,PLL1CR) = RCC_PLL1CR_PLLON; // disable dividers only
+	PLLFLD(P,PLL1CR) = 0;
+	while (PLLFLD(P,PLL1CR) & 2) coro_yield();
 }
 
-static const uint16_t pll_minin[4] = { 8000,8000,4000,4000 };
-
 // returns vcof if all ok, -x for err
+// fi in kHz, m is predivider
 int set_pll(int n,int fi,int m,int mul,int dp,int dq,int dr)
 {
 	if (n<1 || n>4) return -11;
+	const struct pll_info *inf = pll_inf+n-1;
 	// inp. 1,2:8-16M, 3,4:4-16M
-	if (fi < m*pll_minin[n-1] || fi > m*16000) return -12;
-	if (mul<25 || mul>(n<=1?100:200)) return -13;
-	int fvco = mul*fi/m; // must be 400..800MHz
-	if (fvco<400000 || fvco>800000) return -14;
-	if (dp<0 || dp>128 || dq<0 || dq>128 || dr<0 || dr>128) return -15;
+	if (fi < m*inf->min_in || fi > m*16000) return -12;
+	if (mul < inf->min_k || mul > inf->max_k) return -13;
+	int fvco = mul*fi/m;
+	if (fvco < inf->min_vco*1000 || fvco > inf->max_vco*1000) return -14;
+	if (dp<0 || dp>128 || dq<0 || dq>128 || dr<0 || dr>128) return -15; // post-div limits
 
-	volatile uint32_t *P = (uint32_t*)((char*)RCC_BASE + pll_btab[n-1]);
+	volatile uint32_t *P = inf->base;
 	uint32_t ctl = 0;
-	if (P[0] & 3) stop_pll(n); 
-	//xprintf("PLL sts %x\n",P[0]);
-	if (dp) ctl |= 0x10;
-	if (dq) ctl |= 0x20;
-	if (dr) ctl |= 0x40;
-	P[1] = ((m-1)<<16)|(mul-1);
-	P[2] = (dp?dp-1:0)|((dq?dq-1:0)<<8)|((dr?dr-1:0)<<16);
-	P[0] = ctl|1; // power on
-	while (!(P[0] & 2)) coro_yield();
+	if (PLLFLD(P,PLL1CR) & (RCC_PLL1CR_PLLON|RCC_PLL1CR_PLL1RDY)) stop_pll(n); 
+	//xprintf("PLL sts %x\n",PLLFLD(P,PLL1CR));
+	if (dp) ctl |= RCC_PLL1CR_DIVPEN;
+	if (dq) ctl |= RCC_PLL1CR_DIVQEN;
+	if (dr) ctl |= RCC_PLL1CR_DIVREN;
+	PLLFLD(P,PLL1CFGR1) = ((m-1)<<16)|(mul-1);
+	PLLFLD(P,PLL1CFGR2) = (dp?dp-1:0)|((dq?dq-1:0)<<8)|((dr?dr-1:0)<<16);
+	PLLFLD(P,PLL1CR) = ctl|RCC_PLL1CR_PLLON; // power on
+	while (!(PLLFLD(P,PLL1CR) & RCC_PLL1CR_PLL1RDY)) coro_yield();
 	xprintf("PLL %d on, vco=%d p=%d q=%d r=%d\n",n,fvco,
 			dp?fvco/dp:0,dq?fvco/dq:0,dr?fvco/dr:0);
 	return fvco;
@@ -239,8 +263,10 @@ uint32_t crc32 (uint32_t crc, const void *p, uint32_t len)
 }
 
 // allow port Z and DDR be accessed from nonsec mode
+static GPIO_TypeDef *gpio_get(uint16_t port);
 void set_tz_sec() 
 {
+#if MPU_TYPE == 15
 	RCC->MP_AHB5ENSETR = RCC_MC_AHB5ENSETR_GPIOZEN;
 	(void)RCC->MP_AHB5ENSETR;	// dummy read
 	GPIOZ->SECR = 0;		// port Z as unsecure
@@ -253,6 +279,21 @@ void set_tz_sec()
 	TZC->REG_ID_ACCESSO =  0xffffffff;
 	TZC->REG_ATTRIBUTESO = 0xc0000003;
 	TZC->GATE_KEEPER = 3;
+#elif MPU_TYPE == 13
+	// mark GPIO A..I as non-secure
+	for (int i=1;i<=9;i++) gpio_get(i<<4)->SECCFGR = 0;
+
+	RCC->MP_APB5ENSETR = RCC_MP_APB5ENSETR_ETZPCEN|RCC_MP_APB5ENSETR_TZCEN;
+	(void)RCC->MP_APB5ENSETR;
+	ETZPC->DECPROT0 = 0xffffffff;
+	ETZPC->DECPROT1 = 0xffffffff;
+	ETZPC->DECPROT2 = 0xffffffff;
+	ETZPC->DECPROT3 = 0xffffffff;
+	ETZPC->TZMA1_SIZE = 0;	// all RAM is NS
+	TZC->REG_ID_ACCESSO =  0xffffffff;
+	TZC->REG_ATTRIBUTESO = 0xc0000003;
+	TZC->GATE_KEEPER = 3;
+#endif
 }
 
 static int mp1_check_flags(const uint8_t *flg)
@@ -296,6 +337,7 @@ void mp1_set_boot_insn(uint8_t insn)
 	t[BOOT_MODE_INSN] = 0x11770000|insn;
 }
 
+#if MPU_TYPE == 15
 // code to save port Z (I2C) to RAM using DMA
 void setup_dma_sniffer()
 {
@@ -318,6 +360,7 @@ void setup_dma_sniffer()
 	xprintf("sniff dma CR %x %x %x\n",DMA1_Stream0->CR,
 			DMA1_Stream0->M0AR,DMA1->LISR);
 }
+#endif
 
 void mp1_show_boot_flags()
 {
@@ -328,7 +371,7 @@ void mp1_show_boot_flags()
 		if (ctx->boot_flags[i]<0) continue;
 		p += xsnprintf(p,5," %x=%x",i,ctx->boot_flags[i]);
 	}
-	xprintf("INSN:%d %s\n",ctx->boot_insn,buf);
+	xprintf("INSN:%d %s; DENABLE=0x%X\n",ctx->boot_insn,buf,BSEC->BSEC_DENABLE);
 }
 
 void i2c_setup(I2C_TypeDef *I2C)
@@ -408,30 +451,67 @@ int i2c_rd(I2C_TypeDef *I2C,int addr,char *buf,int len)
 }
 
 struct mp1_rpns_t {
-	uint8_t code;
+	uint16_t code;
 	char name[7];
-} static mp1_rpns[] = { { 0x00,"MP157C" }, { 0x01,"MP157A" }, 
+};
+
+struct mp1_rpns_t static const mp15_rpns[] = { 
+	{ 0x00,"MP157C" }, { 0x01,"MP157A" }, { 0xAF,"MP151D" },
 	{ 0x24,"MP153C" }, { 0x25,"MP153A" }, { 0x2E,"MP151C" }, 
 	{ 0x2F,"MP151A" }, { 0x80,"MP157F" }, { 0x81,"MP157D" }, 
 	{ 0xA4,"MP153F" }, { 0xA5,"MP153D" }, { 0xAE,"MP151F" }, 
-	{ 0xAF,"MP151D" },
+	{ 0,"" }
+};
+struct mp1_rpns_t static const mp13_rpns[] = {
+	{ 0x6C9,"MP131A" }, { 0x6C8,"MP131C" }, { 0xEC9,"MP131D" },
+	{ 0xEC8,"MP131F" }, { 0x0C1,"MP133A" }, { 0x0C0,"MP133C" },
+	{ 0x8C1,"MP133D" }, { 0x8C0,"MP133F" }, { 0x001,"MP135A" },
+	{ 0x000,"MP135C" }, { 0x801,"MP135D" }, { 0x800,"MP135F" },
+	{ 0,"" }
 };
 
+static unsigned dbg_idc;
+// called in secure mode because it is not available later
+void cache_dbg_idc_register()
+{
+	unsigned den = BSEC->BSEC_DENABLE;
+	BSEC->BSEC_DENABLE |= 0x400;	// enable reading DBG
+	(void)BSEC->BSEC_DENABLE;
+	dbg_idc = *(uint32_t*)0x50081000;
+	BSEC->BSEC_DENABLE = den;
+}
+
+static const char *rpnn_cache;
 const char *mp1_get_rpn_name()
 {
+	if (rpnn_cache) return rpnn_cache;
+	uint32_t idc = 0xffff & dbg_idc;
+	const struct mp1_rpns_t *tab = NULL;
+	switch (idc) {
+		case 0x6500: tab = mp15_rpns; break;
+		case 0x6501: tab = mp13_rpns; break;
+	}
+	if (!tab) return "UNKNWN";
 	uint32_t rpn = *(uint32_t*)0x5c005204;
 	int i;
-	rpn &= 0xff;
-	for (i=0;i<sizeof(mp1_rpns)/sizeof(struct mp1_rpns_t);i++) 
-		if (mp1_rpns[i].code == rpn) 
-			return mp1_rpns[i].name;
-	return "UNKNWN";
+	rpn &= 0xfff;
+	rpnn_cache = "UNKNOWN";
+	for (i=0;tab[i].name[0];i++) 
+		if (tab[i].code == rpn) rpnn_cache = tab[i].name;
+	return rpnn_cache;
 }
 
 // GPIO support
 static GPIO_TypeDef *gpio_get(uint16_t port)
 {
-	if ((port & 0xf0) == 0xf0) return (GPIO_TypeDef*)GPIOZ_BASE;
+	if ((port & 0xf0) == 0xf0) {
+#if MPU_TYPE == 15
+		return (GPIO_TypeDef*)GPIOZ_BASE;
+#else
+		asm("bkpt");
+		return NULL;
+#endif
+	}
 	return (GPIO_TypeDef*)(GPIOA_BASE+0x1000*((port>>4)-1));
 }
 
@@ -511,7 +591,7 @@ static int run_hse(struct module_desc_t *dsc,struct boot_param_header *fdt,
 
 	// use HSE style to detect board version
 	ctx->lump_rev = 1;
-
+#if MPU_TYPE==15
 	// try external osc first (sugested in MP1 errata instead
 	// of xtal)
 	gpio_setup_one(PIN2_OSCEN,PM_OUT|PM_DFLT(1),0);
@@ -526,6 +606,12 @@ static int run_hse(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		// floating
 		if (gpio_pin_state(PIN3_MARK) != 2) ctx->lump_rev = 2;
 	}
+#else
+	if (hse_on(0)) {
+		xprintf("Can't start HSE\n");
+		return -1;
+	}
+#endif
 	xprintf("HSE started, board_rev detected: %d\n",ctx->lump_rev);
 	return 0;
 }

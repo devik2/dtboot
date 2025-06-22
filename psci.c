@@ -18,6 +18,10 @@
 #define GICC_IAR 0x403
 #define GICC_EOIR 0x404
 
+#define CPUST_ON 0
+#define CPUST_OFF 1
+#define CPUST_PEND 2
+
 static uint32_t stm32mp_get_gicd_base_address()
 {
 	uint32_t periphbase;
@@ -26,12 +30,6 @@ static uint32_t stm32mp_get_gicd_base_address()
 	asm("mrc p15, 4, %0, c15, c0, 0\n" : "=r" (periphbase));
 
 	return (periphbase & CBAR_MASK) + GIC_DIST_OFFSET;
-}
-
-void gicc_disable()
-{
-	volatile uint32_t *gic = (void*)stm32mp_get_gicd_base_address();
-	gic[GICC_CTLR] = 0;
 }
 
 void stm32mp_init_gic(int cpu2)
@@ -52,6 +50,14 @@ void stm32mp_init_gic(int cpu2)
 	}
 	volatile uint32_t *gic = (void*)gic_dist_addr;
 	gic[GICC_PMR] = 0xff; // low prio to allow NS to override it
+}
+
+#if MPU_TYPE == 15
+
+void gicc_disable()
+{
+	volatile uint32_t *gic = (void*)stm32mp_get_gicd_base_address();
+	gic[GICC_CTLR] = 0;
 }
 
 static void gicc_enable()
@@ -105,9 +111,6 @@ static void secondary_test()
 	}
 }
 
-#define CPUST_ON 0
-#define CPUST_OFF 1
-#define CPUST_PEND 2
 volatile static uint8_t sec_cpu_state = CPUST_OFF;
 static uint8_t can_boot_sec;
 static void (*sec_boota)();
@@ -128,6 +131,9 @@ void cpu2_entry() // called from boot_secondary()
 	sec_cpu_state = CPUST_ON; 
 	sec_boota();
 }
+#else
+void cpu2_entry() {} // needed by ASM code
+#endif
 
 __attribute__ ((weak)) int power_off() 
 {
@@ -147,10 +153,13 @@ __attribute__ ((weak)) int reset_machine()
 
 uint32_t psci_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 {
-	if (cmd == 0x84000000) {
+	if (cmd == 0x84000000) { // version
+#if MPU_TYPE == 15
 		sec_cpu_state = CPUST_OFF; 
+#endif
 		return 0x2;
 	}
+#if MPU_TYPE == 15
 	if (cmd == 0x84000002) { // CPU_OFF
 		sec_cpu_state = CPUST_OFF; 
 		__DMB();
@@ -177,6 +186,7 @@ uint32_t psci_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 		xprintf("affinity %d\n",sec_cpu_state);
 		return sec_cpu_state;
 	}
+#endif
 	if (cmd == 0x84000008) { // off
 		return power_off();
 	}
@@ -191,5 +201,7 @@ void psci_setup(struct boot_param_header *fdt,uint32_t *root)
 {
 	uint32_t cpu_on = 0;
 	fetch_fdt_ints(fdt,root,"psci-cpu-on",1,1,&cpu_on);
+#if MPU_TYPE == 15
 	can_boot_sec = cpu_on;
+#endif
 }

@@ -4,12 +4,10 @@
 #include "system.h"
 #include "xprintf.h"
 #include "coro.h"
-#include "stm32mp157axx_cm4.h"
-#include "stm32mp1_ddr_regs.h"
 #include "ddr_regtab.h"
 
-#define _DDRPHYC ((struct stm32mp1_ddrphy *)DDRPHYC_BASE)
-#define _DDRC ((struct stm32mp1_ddrctl *)DDRC_BASE)
+#define _DDRPHYC ((DDRPHYC_TypeDef *)DDRPHYC_BASE)
+#define _DDRC ((DDRCTRL_TypeDef *)DDRCTRL_BASE)
 
 static char verbose = 0;
 
@@ -19,7 +17,7 @@ const struct ddr_regtab_t *find_reg(const char *name,volatile uint32_t **ptr)
 	for (;p->name;p++) 
 		if (!strcasecmp(p->name,name)) {
 			if (ptr) {
-				uint32_t base = p->flags & 1 ? DDRPHYC_BASE : DDRC_BASE;
+				uint32_t base = p->flags & 1 ? DDRPHYC_BASE : DDRCTRL_BASE;
 				*ptr = (void*)(base + p->off);
 			}
 			return p;
@@ -37,7 +35,7 @@ int mod_ddr_reg(const char *name,uint32_t s,uint32_t r)
 	}
 //	xprintf(" _mod '%s': [%08X]\n",name,ptr);
 	uint32_t old = *ptr, new = (old & ~r) | s;
-	//xprintf("mod '%s': [%08X] %08X->%08X\n",name,ptr,old,new);
+//	xprintf("mod '%s': [%08X] %08X->%08X\n",name,ptr,old,new);
 	*ptr = new;
 	return 0;
 }
@@ -50,74 +48,77 @@ void mod_flagged(uint16_t msk,uint32_t ddr_type)
 	if (ddr_type>=DDRT_CNT) ddr_type = 0;
 	const struct ddr_regtab_t *p = ddr_regtab;
 	for (;p->name;p++) {
+#if MPU_TYPE==13
+		if (p->off > 0x4a0) continue; // MP13 has only one DDR AXI port
+#endif
 		if ((p->flags & msk) == msk) 
 			mod_ddr_reg(p->name,
 				(&p->val)[ddr_type], 0xffffffff);
 	}
 }
 
-int idone_wait(struct stm32mp1_ddrphy *phy)
+int idone_wait(DDRPHYC_TypeDef *phy)
 {
 	int tmo = 0;
 	if (verbose)
 		xprintf("[%d] idone wait\n",get_ms_precise());
 	udelay(100); // needed when pir is set
-	while ((phy->pgsr & (DDRPHYC_PGSR_IDONE|DDRPHYC_PGSR_DTERR|
+	while ((phy->PGSR & (DDRPHYC_PGSR_IDONE|DDRPHYC_PGSR_DTERR|
 			DDRPHYC_PGSR_DTIERR|DDRPHYC_PGSR_DFTERR|
 			DDRPHYC_PGSR_RVERR|DDRPHYC_PGSR_RVEIRR))==0) {
 		if (++tmo > 1000000) {
-			xprintf("idone tmo %X\n",phy->pgsr);
+			xprintf("idone tmo %X\n",phy->PGSR);
 			return -1;
 		}
 		coro_yield();
 	}
 	if (verbose)
-		xprintf("[%d] idone %X\n",get_ms_precise(),phy->pgsr);
+		xprintf("[%d] idone %X\n",get_ms_precise(),phy->PGSR);
 	return 0;
 }
 
-int swdone_wait(struct stm32mp1_ddrctl *ctl)
+int swdone_wait(DDRCTRL_TypeDef *ctl)
 {
 	int tmo = 0;
 	mod_ddr_reg("swctl",DDRCTRL_SWCTL_SW_DONE,0);
-	while (!(ctl->swstat & 1)) {
+	while (!(ctl->SWSTAT & 1)) {
 		if (++tmo > 1000000) {
-			xprintf("swdone tmo %X\n",ctl->swstat);
+			xprintf("swdone tmo %X\n",ctl->SWSTAT);
 			return -1;
 		}
 		coro_yield();
 	}
 	if (verbose)
-		xprintf("[%d] swdone %X\n",get_ms_precise(),ctl->swstat);
+		xprintf("[%d] swdone %X\n",get_ms_precise(),ctl->SWSTAT);
 	return 0;
 }
 
-int mode_wait(struct stm32mp1_ddrctl *ctl,int mode)
+int mode_wait(DDRCTRL_TypeDef *ctl,int mode)
 {
 	int tmo = 0;
-	while ((ctl->stat & 0x7)!=mode) {
+	while ((ctl->STAT & 0x7)!=mode) {
 		if (++tmo > 1000000) {
-			xprintf("mode wait tmo %X\n",ctl->stat);
+			xprintf("mode wait tmo %X\n",ctl->STAT);
 			return -1;
 		}
 		coro_yield();
 	}
 	if (verbose)
-		xprintf("[%d] mode done %X\n",get_ms_precise(),ctl->stat);
+		xprintf("[%d] mode done %X\n",get_ms_precise(),ctl->STAT);
 	return 0;
 }
-
+# if 0
 void set_dcu_row(int row,uint16_t a,int ba,uint32_t dt,int cmd)
 {
-	_DDRPHYC->dcuar = row|0x400;
-	_DDRPHYC->dcudr = dt;
-	_DDRPHYC->dcudr = (a<<4)|(ba<<20)|(cmd<<23);
-	_DDRPHYC->dcudr = 0;
-	_DDRPHYC->dcudr = 0;
-	_DDRPHYC->dcurr = 1;
-	xprintf("DCU sts %X\n",_DDRPHYC->dcusr0);
+	_DDRPHYC->DCUAR = row|0x400;
+	_DDRPHYC->DCUDR = dt;
+	_DDRPHYC->DCUDR = (a<<4)|(ba<<20)|(cmd<<23);
+	_DDRPHYC->DCUDR = 0;
+	_DDRPHYC->DCUDR = 0;
+	_DDRPHYC->DCURR = 1;
+	xprintf("DCU sts %X\n",_DDRPHYC->DCUSR0);
 }
-
+#endif
 // returns mem sz in MB
 int mem_meas(volatile uint32_t *addr,int max_mb)
 {
@@ -176,6 +177,18 @@ int mem_test(volatile uint32_t *addr,int mb,uint32_t xor,int verb)
 	return errs;
 }
 
+static void enable_MCE()
+{
+#if MPU_TYPE==13
+	uint32_t rpn = *(uint32_t*)0x5c005204;
+	if (!(rpn & 1)) { // does MP13 support security ?
+		// needed to make DDR work on securable MP13xC/F
+		xprintf("Enable MCE clock\n");
+		RCC->MP_AHB6ENSETR = RCC_MP_AHB6ENSETR_MCEEN;
+	}
+#endif
+}
+
 int ddr_init(uint32_t ddr_type)
 {
 	// reset all blocks
@@ -184,6 +197,7 @@ int ddr_init(uint32_t ddr_type)
 		RCC_DDRITFCR_DDRCAXIRST|RCC_DDRITFCR_DDRCAPBRST;
 
 	RCC->DDRITFCR |= 0x6ff; // turn all DDR clocks on
+	enable_MCE();
 
 	// deassert PHY resets
 	RCC->DDRITFCR &= ~(RCC_DDRITFCR_DPHYCTLRST|RCC_DDRITFCR_DPHYRST);
@@ -198,8 +212,8 @@ int ddr_init(uint32_t ddr_type)
 	mod_flagged(0x900,ddr_type); // amap
 
 	/* skip CTRL init, SDRAM init is done by PHY PUBL */
-	mod_ddr_reg("init0",DDRCTRL_INIT0_SKIP_DRAM_INIT_NORMAL,
-			DDRCTRL_INIT0_SKIP_DRAM_INIT_MASK);
+	mod_ddr_reg("init0",DDRCTRL_INIT0_SKIP_DRAM_INIT_0,
+			DDRCTRL_INIT0_SKIP_DRAM_INIT_Msk);
 	mod_flagged(0x1100,ddr_type);
 
 	/*  2. deassert reset signal core_ddrc_rstn, aresetn and presetn */
@@ -220,7 +234,7 @@ int ddr_init(uint32_t ddr_type)
 	uint32_t pir = DDRPHYC_PIR_DLLSRST | 
 		DDRPHYC_PIR_ZCAL | DDRPHYC_PIR_ITMSRST | DDRPHYC_PIR_DRAMINIT | 
 		DDRPHYC_PIR_ICPC | DDRPHYC_PIR_INIT;
-	if (ddr_type & DDRF_SLOW) pir |= BIT(17);  // DLLBYP
+	if (ddr_type & DDRF_SLOW) pir |= 1<<17;  // DLLBYP
 	else pir |= DDRPHYC_PIR_DLLLOCK|DDRPHYC_PIR_QSTRN;
 	if (ddr_type != DDRT_2_16) pir |= DDRPHYC_PIR_DRAMRST;
 
@@ -236,15 +250,18 @@ int ddr_init(uint32_t ddr_type)
 	/*  7. Wait for DWC_ddr_umctl2 to move to normal operation mode
 	 *     by monitoring STAT.operating_mode signal */
 	/* wait uMCTL2 ready */
-	mode_wait(_DDRC,DDRCTRL_STAT_OPERATING_MODE_NORMAL);
-
+	mode_wait(_DDRC,DDRCTRL_STAT_OPERATING_MODE_0);
+#if 0
 	for (;0;) {
 		set_dcu_row(0,7,0,77,8);
 	}
+#endif
 	xprintf("[%d] enable DDR ports\n",get_ms_precise());
-	mod_ddr_reg("pctrl_0",DDRCTRL_PCTRL_N_PORT_EN,0);
-	mod_ddr_reg("pctrl_1",DDRCTRL_PCTRL_N_PORT_EN,0);
-
+	mod_ddr_reg("pctrl_0",DDRCTRL_PCTRL_0_PORT_EN,0);
+#if MPU_TYPE==15
+	mod_ddr_reg("pctrl_1",DDRCTRL_PCTRL_0_PORT_EN,0);
+#endif
+	//asm("bkpt");
 	int mb = 0;
 	mem_test((void*)0xc0000000,1,-1,0x10a);
 	if (ddr_type & DDRF_FTEST || !mem_test((void*)0xc0000000,1,0,0x10a)) 

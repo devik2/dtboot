@@ -172,8 +172,9 @@ int xprintf (			/* Put a formatted string to the default device */
 	va_list arp;
 
 	va_start(arp, fmt);
-	xvfprintf(&xstream_out, fmt, arp);
+	int sz = xvfprintf(&xstream_out, fmt, arp);
 	va_end(arp);
+	return sz;
 }
 
 int xsnprintf (			/* Put a formatted string to the memory */

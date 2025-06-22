@@ -1,4 +1,3 @@
-#include "stm32mp157axx_cm4.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

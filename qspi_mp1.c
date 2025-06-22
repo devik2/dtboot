@@ -5,7 +5,6 @@
 #include "coro.h"
 #include "xprintf.h"
 #include "gpio.h"
-#include "stm32mp157axx_cm4.h"
 
 #define QMO_RD  1
 #define QMO_WR  2
@@ -27,19 +26,29 @@ void qspi_set_divider(int div)
 static void qspi_init()
 {
 	RCC->QSPICKSELR = 0; // use AXI clk
-	RCC->MP_AHB6ENSETR = RCC_MC_AHB6ENCLRR_QSPIEN|RCC_MC_AHB6ENSETR_MDMAEN;
+	RCC->MP_AHB6ENSETR = RCC_MP_AHB6ENCLRR_QSPIEN;
+	RCC->MP_NS_AHB6ENSETR = RCC_MP_NS_AHB6ENSETR_MDMAEN;
 	(void)RCC->MP_AHB6ENSETR;
+	(void)RCC->MP_NS_AHB6ENSETR;
 
+	// 0x58003000
 	QUADSPI->CR = 0;
 	udelay(100);
 	QUADSPI->DCR = 27 << QUADSPI_DCR_FSIZE_Pos; // 256MB size
 	QUADSPI->CR = QUADSPI_CR_EN|((DMA_BLKSZ-1)<<QUADSPI_CR_FTHRES_Pos);
 
 	struct gpio_setup_t qpins[] = {
+#if MPU_TYPE == 15
 		{ PM_B(6), PM_ALT|PM_SPD(2), 10, },
-		{ PM_F(8), PM_ALT|PM_SPD(2), 10, },
-		{ PM_F(9), PM_ALT|PM_SPD(2), 10, },
-		{ PM_F(10), PM_ALT|PM_SPD(2), 9, }
+                { PM_F(8), PM_ALT|PM_SPD(2), 10, },
+                { PM_F(9), PM_ALT|PM_SPD(2), 10, },
+                { PM_F(10), PM_ALT|PM_SPD(2), 9, }
+#elif MPU_TYPE == 13
+		{ PM_D(4), PM_ALT|PM_SPD(2), 9, }, // CLK
+		{ PM_D(5), PM_ALT|PM_SPD(2), 9, }, // IO0
+		{ PM_E(9), PM_ALT|PM_SPD(2), 9, }, // IO1
+		{ PM_E(14),PM_ALT|PM_SPD(2), 9, }  // NCS
+#endif
 	};
 	gpio_setup(qpins,sizeof(qpins)/sizeof(struct gpio_setup_t));
 
@@ -56,7 +65,11 @@ static void read_by_mdma(void *dst,int bytes)
 {
 	// use channel 0 for QSPI read
 	MDMA_Channel0->CIFCR = 0x1f;	// clear all flags
+#if MPU_TYPE == 13
+	MDMA_Channel0->CTBR = 26;	// QSPI FIFO trigger
+#else
 	MDMA_Channel0->CTBR = 22;	// QSPI FIFO trigger
+#endif
 	MDMA_Channel0->CSAR = (int)&QUADSPI->DR;
 	MDMA_Channel0->CDAR = (int)dst;
 	MDMA_Channel0->CBNDTR = bytes;
@@ -69,8 +82,9 @@ static void read_by_mdma(void *dst,int bytes)
 	while (!(MDMA_Channel0->CISR & MDMA_CISR_CTCIF)) coro_yield();
 }
 
-int qspi_xact(int cmd,int addr,int mode,uint32_t *buf,int len)
+int qspi_xact(int cmd,int addr,int mode,uint32_t *_buf,int len)
 {
+	uint8_t *buf = (uint8_t*)_buf; // current code is byte-based
 	int asz = (mode >> 4) & 7;
 	int dwid = (mode & (QMO_DBL|QMO_QDL) ? QUADSPI_CCR_DMODE_1 : 0)|
 		(mode & QMO_DBL ? 0 : QUADSPI_CCR_DMODE_0);
@@ -106,24 +120,13 @@ int qspi_xact(int cmd,int addr,int mode,uint32_t *buf,int len)
 			}
 			continue; 
 		}
-		// xfer size, len for 1,2,3, multiple of 4 for larger
-		sz = sz < 4 ? sz : (sz & 0x3c);
 		tmo = 0;
 		len -= sz;
+		// use byte only xfers, old size-adaptive code was too buggy
 		if (mode & QMO_RD) {
-			for (;sz >= 4;sz -= 4) *(buf++) = QUADSPI->DR; 
-			if (sz & 3) {
-				uint16_t *p = (void*)buf;
-				if (sz >= 2) *(p++) = *(uint16_t*)&QUADSPI->DR;
-				if (sz & 1) *p = *(uint8_t*)&QUADSPI->DR;
-			}
+			for (;sz>0;sz--) *(buf++) = *(uint8_t*)&QUADSPI->DR; 
 		} else {
-			for (;sz >= 4;sz -= 4) QUADSPI->DR = *(buf++);
-			if (sz & 3) {
-				uint16_t *p = (void*)buf;
-				if (sz >= 2) *(uint16_t*)&QUADSPI->DR = *(p++);
-				if (sz & 1) *(uint8_t*)&QUADSPI->DR = *p;
-			}
+			for (;sz>0;sz--) *(uint8_t*)&QUADSPI->DR = *(buf++); 
 		}
 	}
 	return 0;
@@ -143,8 +146,13 @@ static uint32_t nor_read_id()
 
 static uint32_t nand_read_id()
 {
+	// we know at least 3 fmt:
+	// Winbond NAND : 9f dummy mfg idh idl
+	// Macron NOR   : 9f mfg idh idl
+	// Alliance NAND: 9f addr_in mfg id
+	// we use 9f and 4B read always and then mask them out 
 	uint32_t buf = 0;
-	qspi_xact(0x9f,0,QMO_RD|QAD(1),&buf,2);
+	qspi_xact(0x9f,0,QMO_RD,&buf,4);
 	return buf;
 }
 
@@ -195,7 +203,8 @@ static int nand_column(struct mtd_dev_t *dev,uint32_t page)
 {
 	const struct mtd_chip_t *chip = dev->chip;
 	if (!(chip->flags & MTDF_2PL)) return 0;
-	// for dual page dup EB LSB to column MSB+1
+	// for dual page dup EB LSB to column MSB+1 to select
+	// correct part of cache register
 	return ((page >> chip->eb_sh) & 1) << (chip->page_sh+1);
 }
 
@@ -296,7 +305,8 @@ int mtd_detect_qspi(struct mtd_dev_t *dev,int bus,int flags)
 	qspi_set_port(bus);
 	qspi_wait();
 	uint32_t tmp;
-	qspi_xact(0xff,0,QMO_WR,&tmp,1); // send reset
+ag:
+	qspi_xact(0xff,0,QMO_WR,&tmp,0); // send reset
 	qspi_wait();
 	int id = nor_read_id(), nand = 0;
 	if (!id || (id & 0xffff) == 0xffff) {
@@ -310,6 +320,7 @@ int mtd_detect_qspi(struct mtd_dev_t *dev,int bus,int flags)
 	const struct mtd_chip_t *chip = mtd_lookup_flash(id);
 	if (!chip) {
 		xprintf("unknown qspi chip %X/%d\n",id,nand);
+//		udelay(1000000); goto ag;
 		return -1;
 	}
 	memset(dev,0,sizeof(*dev));

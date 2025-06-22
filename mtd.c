@@ -38,12 +38,14 @@ static int tc58_init(struct mtd_dev_t *dev)
 
 static struct mtd_chip_t fchips[] = {
 	// flags,pgsh,ebsh,,wr_sh,eccsh,ebcnt,id
+	{ MTDF_NAND,11,6,0,11,6,1024,0x21AAEF00,0xffffff00,"W25N01GV", w25n_init },
+	{ MTDF_NAND,11,6,0,11,6,512,0x20AAEF00,0xffffff00,"W25N512GV", w25n_init },
 	{ MTDF_NAND,11,6,0,11,6,1024,0xaaef,0xffff,"W25N01GV", w25n_init },
 	{ MTDF_NAND,12,6,0,12,7,2048,0xed98,0xffff,"TC58CVG2S0HRAIJ",
 		tc58_init },
 	{ MTDF_NAND|MTDF_RDRAND,11,6,0,11,7,1024,0x142C,0xffff,"MT29F1G01_3V3" },
 	{ MTDF_NAND|MTDF_RDRAND|MTDF_2PL,
-		11,6,0,11,7,2048,0x242C,0xffff,"MT29F2G01" },
+		11,6,0,11,7,2048,0x2C242C00,0xffffffff,"MT29F2G01" },
 	{ 0,8,8,0,8,0,1024,0x199d,0xffff,"IS25[LW]P512M" },
 	{ 0,9,9,0,9,0,256,0x1901,0xffff,"S25FL512S" },
 	{ MTDF_DYN, },
