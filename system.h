@@ -17,6 +17,19 @@ static inline int seq_after(int a,int b)
 	return (b-a)<0;
 }
 
+static inline void _halt()
+{
+	asm("hlt #0");
+	for (;;);
+}
+
+static void rcc_en_clock(volatile uint32_t *cfgr)
+{
+	*cfgr |= 2;
+	(void)*cfgr; // readback to propagate clk en
+}
+int rcc_flx_chan_set(unsigned ch,unsigned src,unsigned div,unsigned en);
+
 uint32_t get_ms();
 void udelay(uint32_t us);
 uint32_t get_ms_precise();
@@ -26,6 +39,7 @@ void console_sync();
 void console_stop_buf();
 void panic(const char *msg,...);
 uint32_t crc32 (uint32_t crc, const void *p, uint32_t len);
+void wait_for_halt();
 
 struct module_inst_t;
 struct boot_param_header;

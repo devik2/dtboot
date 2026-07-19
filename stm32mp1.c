@@ -6,14 +6,13 @@
 #include "gpio.h"
 #include "system.h"
 #include "fdt.h"
-//#include "stm32mp1_ddr_regs.h"
 
 #define S_GPIO_MODER(G,P,M) S_BITFLD(G->MODER,P*2,2,M);
 #define S_GPIO_OSPEEDR(G,P,S) S_BITFLD(G->OSPEEDR,P*2,2,S);
 // zapne ALT funkci N na pinu P portu G
 #define S_GPIO_ALT(G,P,N) S_BITFLD(G->AFR[(P>>3)&1],(P&7)*4,4,N); \
 			S_GPIO_MODER(G,P,2)
-
+#if 0
 // first part, if LSE not running start it, it can take 2sec
 // to start so that dont wait for it
 static uint32_t lse_start_tm;
@@ -41,26 +40,6 @@ static void check_rtc()
 	}
 }
 
-// try to wait for external or xtal clock, returns 0 if ok
-static int hse_on(int ext)
-{
-	uint32_t conf = RCC_OCENSETR_HSEON;
-	if (ext) conf |= RCC_OCENSETR_HSEBYP|RCC_OCENSETR_DIGBYP;
-	RCC->OCENSETR = conf;
-	uint32_t tm = get_ms();
-	while (!(RCC->OCRDYR & RCC_OCRDYR_HSERDY)) {
-		if (get_ms()>tm+20) {
-			// revert ext clock settings
-			RCC->OCENCLRR = conf;
-			return -1;
-		}
-		coro_yield();
-	}
-	RCC->CPERCKSELR = 2; // use HSE as per_ck
-	xprintf("HSE (ext=%d) on in %d ms\n",ext,get_ms()-tm);
-	return 0;
-}
-
 static void csi_on()
 {
 	RCC->OCENSETR = RCC_OCENSETR_CSION;
@@ -73,98 +52,55 @@ static void compensation_on()
 #if MPU_TYPE == 13
 	xprintf("TODO: COMP skip because prob on MP13\n");
 #else
-	RCC->MP_NS_APB3ENSETR = RCC_MP_NS_APB3ENSETR_SYSCFGEN;
-	(void)RCC->MP_NS_APB3ENSETR;
+	RCC->RCC_NNAME(,APB3ENSETR) = RCC_NNAME(RCC_,APB3ENSETR_SYSCFGEN);
+	(void)RCC->RCC_NNAME(,APB3ENSETR);
 	SYSCFG->CMPENSETR = 1;
 	while (!(SYSCFG->CMPCR & SYSCFG_CMPCR_READY)) coro_yield();
 	SYSCFG->CMPCR &= ~SYSCFG_CMPCR_SW_CTRL;
 	xprintf("COMPensation on\n");
 #endif
 }
-
-//static const uint32_t pll_btab[4] = { 0x80,0x94,0x880,0x894 };
-#define PLLBASE(n) &(RCC->PLL ## n ## CR)
-#define PLLOFF(n) offsetof(RCC_TypeDef,PLL ## n ## CR)
-#define PLLFLD(ptr,f) ptr[(offsetof(RCC_TypeDef,f)-offsetof(RCC_TypeDef,PLL1CR))/4]
-
-struct pll_info {
-	volatile uint32_t *base;
-	uint16_t min_in;	// min input freq in khz, max 16MHz
-	uint16_t min_vco;	// in MHz
-	uint16_t max_vco;
-	uint8_t min_k,max_k;	// loop divider
-} static const pll_inf[4] = {
-#if MPU_TYPE == 15
-	{ PLLBASE(1),8000,400,800,25,100 },{ PLLBASE(2),8000,400,800,25,100 },
-	{ PLLBASE(3),4000,400,800,25,200 },{ PLLBASE(4),4000,400,800,25,200 }
-#elif MPU_TYPE == 13
-	{ PLLBASE(1),8000,496,999,31,125 },{ PLLBASE(2),8000,400,800,25,100 },
-	{ PLLBASE(3),4000,400,800,25,200 },{ PLLBASE(4),4000,400,800,25,200 }
 #endif
-};
 
-static void stop_pll(int n)
+#define PIN_OSC_EN PM_Z(3)
+// try to wait for external or xtal clock, returns 0 if ok
+int hse_on(int ext)
 {
-	volatile uint32_t *P = pll_inf[n-1].base;
-	PLLFLD(P,PLL1CR) = RCC_PLL1CR_PLLON; // disable dividers only
-	PLLFLD(P,PLL1CR) = 0;
-	while (PLLFLD(P,PLL1CR) & 2) coro_yield();
-}
-
-// returns vcof if all ok, -x for err
-// fi in kHz, m is predivider
-int set_pll(int n,int fi,int m,int mul,int dp,int dq,int dr)
-{
-	if (n<1 || n>4) return -11;
-	const struct pll_info *inf = pll_inf+n-1;
-	// inp. 1,2:8-16M, 3,4:4-16M
-	if (fi < m*inf->min_in || fi > m*16000) return -12;
-	if (mul < inf->min_k || mul > inf->max_k) return -13;
-	int fvco = mul*fi/m;
-	if (fvco < inf->min_vco*1000 || fvco > inf->max_vco*1000) return -14;
-	if (dp<0 || dp>128 || dq<0 || dq>128 || dr<0 || dr>128) return -15; // post-div limits
-
-	volatile uint32_t *P = inf->base;
-	uint32_t ctl = 0;
-	if (PLLFLD(P,PLL1CR) & (RCC_PLL1CR_PLLON|RCC_PLL1CR_PLL1RDY)) stop_pll(n); 
-	//xprintf("PLL sts %x\n",PLLFLD(P,PLL1CR));
-	if (dp) ctl |= RCC_PLL1CR_DIVPEN;
-	if (dq) ctl |= RCC_PLL1CR_DIVQEN;
-	if (dr) ctl |= RCC_PLL1CR_DIVREN;
-	PLLFLD(P,PLL1CFGR1) = ((m-1)<<16)|(mul-1);
-	PLLFLD(P,PLL1CFGR2) = (dp?dp-1:0)|((dq?dq-1:0)<<8)|((dr?dr-1:0)<<16);
-	PLLFLD(P,PLL1CR) = ctl|RCC_PLL1CR_PLLON; // power on
-	while (!(PLLFLD(P,PLL1CR) & RCC_PLL1CR_PLL1RDY)) coro_yield();
-	xprintf("PLL %d on, vco=%d p=%d q=%d r=%d\n",n,fvco,
-			dp?fvco/dp:0,dq?fvco/dq:0,dr?fvco/dr:0);
-	return fvco;
+	gpio_setup_one(PIN_OSC_EN,PM_OUT|PM_DFLT(1),0);
+	uint32_t conf = RCC_OCENSETR_HSEON;
+	if (ext) conf |= RCC_OCENSETR_HSEBYP|RCC_OCENSETR_HSEDIGBYP;
+	RCC->OCENSETR = conf;
+	uint32_t tm = get_ms();
+	while (!(RCC->OCRDYR & RCC_OCRDYR_HSERDY)) {
+		if (get_ms()>tm+20) {
+			// revert ext clock settings
+			RCC->OCENCLRR = conf;
+			xprintf("HSE (ext=%d) can't start in %d ms\n",ext,get_ms()-tm);
+			return -1;
+		}
+		coro_yield();
+	}
+	//RCC->CPERCKSELR = 2; // use HSE as per_ck TODO
+	xprintf("HSE (ext=%d) on in %d ms\n",ext,get_ms()-tm);
+	return 0;
 }
 
 static uint32_t fq1e3_cache,fq1e6_cache;
+uint8_t ms_freq_sh;		// approx shift for ms cnv
 
 uint32_t call_smc(uint32_t cmd,uint32_t a1,uint32_t a2);
 void stgen_setup(int khz,int use_hse,int keep)
 {
-	RCC->STGENCKSELR = use_hse;
-	volatile uint32_t *STG = (void*)STGENC_BASE;
-	STG[0] = 0; // stop
+	// STGEN is already running, but flexgen should be glitch free
+	rcc_flx_chan_set(33,use_hse ? 6:5,1,1);
 	int hz = khz*1000;
 	uint64_t x = 0;
-	if (keep) { // assume STG[3] is zero (valid for boot time<1min)
-		x = STG[2];
-		x = x*hz/STG[8]; // recompute time for new clock
+	if (keep) { // assume CNTCVU is zero (valid for boot time<1min)
+		x = STGENR->CNTCVL;
+		x = x*hz/get_arm_tfreq(); // recompute time for new clock
 	}
-	STG[2] = x; STG[3] = 0;
-	STG[8] = hz;
-#if NSEC
-	int nons = ((struct stm32mp1_mctx*)mctx)->boot_flags[BFI_NONS];
-	if (nons<0) nons = 0;
-	if (!(nons & 1))
-		call_smc(SMC_SET_FREQ,hz,0);
-	else
-#endif
-		asm ("mcr p15, 0, %0, c14, c0, 0"::"r"(hz));
-	STG[0] = 1; // start
+	call_smc(SMC_SET_STGEN,hz,x);
+
 	for (ms_freq_sh = 0;hz;ms_freq_sh++) hz >>= 1;
 	ms_freq_sh -= 10;
 	fq1e6_cache = fq1e3_cache = 0;
@@ -173,8 +109,6 @@ void stgen_setup(int khz,int use_hse,int keep)
 	xprintf("[%d] delay tmr %X %X @%d\n",get_ms_precise(),
 			(int)get_arm_time(),(int)(t>>32),tf);
 }
-
-uint8_t ms_freq_sh;		// approx shift for ms cnv
 
 uint32_t get_ms()
 {
@@ -197,20 +131,15 @@ uint32_t get_ms_precise()
 
 void udelay(uint32_t us)
 {
-#if 0
-	int i;
-	for (i=0;i<30*us;i++) 
-		__asm("nop");
-#else
 	uint32_t f = get_arm_tfreq()>>20;
 	uint64_t tgt = get_arm_time() + f*us;
 	while (seq64_after(tgt,get_arm_time())) coro_yield();
-#endif
 }
 
 // p & len must be 32B aligned, max len is 64k
 static void crc_dma(const char *p,int len,int rpt)
 {
+#if 0
 	MDMA_Channel1->CIFCR = 0x1f;	// clear all flags
 	MDMA_Channel1->CSAR = (int)p;
 	MDMA_Channel1->CDAR = (int)&CRC1->DR;
@@ -228,14 +157,15 @@ static void crc_dma(const char *p,int len,int rpt)
 	MDMA_Channel1->CCR = MDMA_CCR_EN;
 	MDMA_Channel1->CCR = MDMA_CCR_EN|MDMA_CCR_SWRQ;
 	while (!(MDMA_Channel1->CISR & MDMA_CISR_CTCIF)) coro_yield();
+#endif
 }
-
 // fast HW checker
 uint32_t crc32 (uint32_t crc, const void *p, uint32_t len)
 {
-	int dma = 1;
-	CRC1->INIT = ~crc;
-	CRC1->CR = CRC_CR_RESET|CRC_CR_REV_OUT|CRC_CR_REV_IN_0|CRC_CR_REV_IN_1;
+	int dma = 0;
+	//xprintf("CRC start %X %X %d\n",crc,(uint32_t)p,len);
+	CRC->INIT = ~crc;
+	CRC->CR = CRC_CR_RESET|CRC_CR_REV_OUT|CRC_CR_REV_IN_0|CRC_CR_REV_IN_1;
 	if ((((int)p) & 31) == 0) { // 32B aligned
 		if (len>=0x10000 && dma) {
 			crc_dma(p,0x10000,(len>>16)-1);
@@ -244,7 +174,7 @@ uint32_t crc32 (uint32_t crc, const void *p, uint32_t len)
 		}
 		if (len<128 || !dma) {
 			while (len>=4) {
-				CRC1->DR = *(int*)p;
+				CRC->DR = *(int*)p;
 				len-=4; p+=4;
 			}
 		} else {
@@ -253,12 +183,13 @@ uint32_t crc32 (uint32_t crc, const void *p, uint32_t len)
 			len &= 31;
 		}
 	}
-	CRC1->CR = CRC_CR_REV_OUT|CRC_CR_REV_IN_0;
+	CRC->CR = CRC_CR_REV_OUT|CRC_CR_REV_IN_0;
 	while (len>0) {
-		*(volatile char*)&CRC1->DR = *(const char*)p;
+		*(volatile char*)&CRC->DR = *(const char*)p;
 		len--; p++;
 	}
-	uint32_t co = ~CRC1->DR;
+	uint32_t co = ~CRC->DR;
+	//xprintf("CRC res %X\n",co);
 	return co;
 }
 
@@ -269,7 +200,7 @@ void set_tz_sec()
 #if MPU_TYPE == 15
 	RCC->MP_AHB5ENSETR = RCC_MC_AHB5ENSETR_GPIOZEN;
 	(void)RCC->MP_AHB5ENSETR;	// dummy read
-	GPIOZ->SECR = 0;		// port Z as unsecure
+	GPIOZ->SECCFGR = 0;		// port Z as unsecure
 
 	RCC->MP_APB5ENSETR = RCC_MC_APB5ENSETR_TZPCEN|RCC_MC_APB5ENSETR_TZC1EN|
 		RCC_MC_APB5ENSETR_TZC2EN;
@@ -332,9 +263,12 @@ void mp1_read_boot_flags(struct stm32mp1_mctx *ctx)
 
 void mp1_set_boot_insn(uint8_t insn)
 {
+#if 0
 	PWR->CR1 |= PWR_CR1_DBP; 
 	volatile uint32_t *t = &TAMP->BKP0R;
 	t[BOOT_MODE_INSN] = 0x11770000|insn;
+	// TODO
+#endif
 }
 
 #if MPU_TYPE == 15
@@ -371,7 +305,7 @@ void mp1_show_boot_flags()
 		if (ctx->boot_flags[i]<0) continue;
 		p += xsnprintf(p,5," %x=%x",i,ctx->boot_flags[i]);
 	}
-	xprintf("INSN:%d %s; DENABLE=0x%X\n",ctx->boot_insn,buf,BSEC->BSEC_DENABLE);
+	xprintf("INSN:%d %s; DENABLE=0x%X\n",ctx->boot_insn,buf,BSEC->DENR);
 }
 
 void i2c_setup(I2C_TypeDef *I2C)
@@ -450,51 +384,33 @@ int i2c_rd(I2C_TypeDef *I2C,int addr,char *buf,int len)
 	return 0;
 }
 
-struct mp1_rpns_t {
-	uint16_t code;
-	char name[7];
-};
-
-struct mp1_rpns_t static const mp15_rpns[] = { 
-	{ 0x00,"MP157C" }, { 0x01,"MP157A" }, { 0xAF,"MP151D" },
-	{ 0x24,"MP153C" }, { 0x25,"MP153A" }, { 0x2E,"MP151C" }, 
-	{ 0x2F,"MP151A" }, { 0x80,"MP157F" }, { 0x81,"MP157D" }, 
-	{ 0xA4,"MP153F" }, { 0xA5,"MP153D" }, { 0xAE,"MP151F" }, 
-	{ 0,"" }
-};
-struct mp1_rpns_t static const mp13_rpns[] = {
-	{ 0x6C9,"MP131A" }, { 0x6C8,"MP131C" }, { 0xEC9,"MP131D" },
-	{ 0xEC8,"MP131F" }, { 0x0C1,"MP133A" }, { 0x0C0,"MP133C" },
-	{ 0x8C1,"MP133D" }, { 0x8C0,"MP133F" }, { 0x001,"MP135A" },
-	{ 0x000,"MP135C" }, { 0x801,"MP135D" }, { 0x800,"MP135F" },
+struct mp2_rpns_t {
+	uint32_t code;
+	char name[6];
+} static const mp25_rpns[] = {
+	{ 0x00082182,"235C" }, { 0x000B318E,"233C" }, { 0x000B31EF,"231C" }, { 0x40082F82,"235A" },
+	{ 0x400B3F8E,"233A" }, { 0x400B3FEF,"231A" }, { 0x80082182,"235F" }, { 0x800B318E,"233F" },
+	{ 0x800B31EF,"231F" }, { 0xC0082F82,"235D" }, { 0xC00B3F8E,"233D" }, { 0xC00B3FEF,"231D" },
+	{ 0x00002000,"257C" }, { 0x00082000,"255C" }, { 0x000B2004,"253C" }, { 0x000B3065,"251C" },
+	{ 0x40002E00,"257A" }, { 0x40082E00,"255A" }, { 0x400B2E04,"253A" }, { 0x400B3E65,"251A" },
+	{ 0x80002000,"257F" }, { 0x80082000,"255F" }, { 0x800B2004,"253F" }, { 0x800B3065,"251F" },
+	{ 0xC0002E00,"257D" }, { 0xC0082E00,"255D" }, { 0xC00B2E04,"253D" }, { 0xC00B3E65,"251D" },
 	{ 0,"" }
 };
 
-static unsigned dbg_idc;
-// called in secure mode because it is not available later
-void cache_dbg_idc_register()
-{
-	unsigned den = BSEC->BSEC_DENABLE;
-	BSEC->BSEC_DENABLE |= 0x400;	// enable reading DBG
-	(void)BSEC->BSEC_DENABLE;
-	dbg_idc = *(uint32_t*)0x50081000;
-	BSEC->BSEC_DENABLE = den;
-}
-
+uint32_t dbg_idc,rpn,cpu_id[3];
 static const char *rpnn_cache;
 const char *mp1_get_rpn_name()
 {
 	if (rpnn_cache) return rpnn_cache;
 	uint32_t idc = 0xffff & dbg_idc;
-	const struct mp1_rpns_t *tab = NULL;
+	const struct mp2_rpns_t *tab = NULL;
 	switch (idc) {
-		case 0x6500: tab = mp15_rpns; break;
-		case 0x6501: tab = mp13_rpns; break;
+		case 0x505: tab = mp25_rpns; break;
 	}
 	if (!tab) return "UNKNWN";
-	uint32_t rpn = *(uint32_t*)0x5c005204;
+	//uint32_t rpn = *(uint32_t*)0x44000024; LOADED BY SEC
 	int i;
-	rpn &= 0xfff;
 	rpnn_cache = "UNKNOWN";
 	for (i=0;tab[i].name[0];i++) 
 		if (tab[i].code == rpn) rpnn_cache = tab[i].name;
@@ -504,15 +420,9 @@ const char *mp1_get_rpn_name()
 // GPIO support
 static GPIO_TypeDef *gpio_get(uint16_t port)
 {
-	if ((port & 0xf0) == 0xf0) {
-#if MPU_TYPE == 15
+	if ((port & 0xf0) == 0xf0) 
 		return (GPIO_TypeDef*)GPIOZ_BASE;
-#else
-		asm("bkpt");
-		return NULL;
-#endif
-	}
-	return (GPIO_TypeDef*)(GPIOA_BASE+0x1000*((port>>4)-1));
+	return (GPIO_TypeDef*)(GPIOA_BASE+(GPIOB_BASE-GPIOA_BASE)*((port>>4)-1));
 }
 
 int gpio_in(gport_t port)
@@ -573,49 +483,19 @@ __attribute__((noinline)) uint32_t gpio_pin_state(gport_t p)
 	return a;
 }
 
-#define PIN2_OSCEN PM_Z(5)
-#define PIN3_MARK PM_H(10) // EXMP1 marker
-
-// SOMP1 uses pulldown on OSC EN but OSC's internal pullup is
-// stronger. Fortunately one can force it down and OSC removes
-// it pullup. Do it before suspend (5mA goes to OSC)
-void somp1_disable_osc()
-{
-	gpio_setup_one(PIN2_OSCEN,PM_OUT|PM_DFLT(0),0);
-}
-
 static int run_hse(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
 	struct stm32mp1_mctx *ctx = (struct stm32mp1_mctx *)mctx;
 
-	// use HSE style to detect board version
-	ctx->lump_rev = 1;
-#if MPU_TYPE==15
-	// try external osc first (sugested in MP1 errata instead
-	// of xtal)
-	gpio_setup_one(PIN2_OSCEN,PM_OUT|PM_DFLT(1),0);
 	if (hse_on(1)) { 
-		ctx->lump_rev = 0;
-		if (hse_on(0)) { // old board with xtal
-			xprintf("Can start no HSE\n");
-			return -1;
-		}
-	} else {
-		// take oportunity and detect EXMP board, it has PH10 not
-		// floating
-		if (gpio_pin_state(PIN3_MARK) != 2) ctx->lump_rev = 2;
-	}
-#else
-	if (hse_on(0)) {
-		xprintf("Can't start HSE\n");
+		xprintf("Can start no HSE\n");
 		return -1;
 	}
-#endif
 	xprintf("HSE started, board_rev detected: %d\n",ctx->lump_rev);
 	return 0;
 }
-
+#if 0
 static int run_csi_comp(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
@@ -623,53 +503,118 @@ static int run_csi_comp(struct module_desc_t *dsc,struct boot_param_header *fdt,
 	compensation_on();
 	return 0;
 }
+#endif
 
+struct PLL_TypeDef 
+{
+  __IO uint32_t CFGR1;
+  __IO uint32_t CFGR2;
+  __IO uint32_t CFGR3;
+  __IO uint32_t CFGR4;
+  __IO uint32_t CFGR5;
+       uint32_t RESERVED;
+  __IO uint32_t CFGR6;
+  __IO uint32_t CFGR7;
+};
+static uint32_t pll_2_8[7] = { 0x590,0x5b8,0x1360,0x1388,0x13b0,0x13d8,0x1400 };
+static uint8_t pll_muxes[8] = { 5,6,7,0,1,2,3,4 };
+
+int32_t rcc_set_pll1(uint32_t src,uint32_t m,uint32_t n,uint32_t d1,uint32_t d2)
+{
+	if (src>2 || m<1 || m>63 || n<20 || n>320 || d1<1 || d1>7 || d2<1 || d2>7) return -1;
+	CA35SSC->CHGCLKREQ_WS1 = 1; // switch to exclk (flx 63, typ. HSI)
+	int tmo = 0;
+	while (!(CA35SSC->CHGCLKREQ_RW & 2)) {
+		coro_yield();
+		if (++tmo > 1000000) {
+			_halt();
+			return -2;
+		}
+	}
+	RCC->MUXSELCFGR = (RCC->MUXSELCFGR & 0xff0fffff)|(src << 20);
+	CA35SSC->PLL_FREQ1_RW = n|(m<<16);
+	CA35SSC->PLL_FREQ2_RW = d1|(d2<<3);
+	CA35SSC->PLL_ENABLE_WS1 = 0x5;
+	CA35SSC->BRM_WS1 = 0x10001; // slow clk 32x when in IDLE
+	tmo = 0;
+	while (!(CA35SSC->PLL_ENABLE_RW & 2)) {
+		coro_yield();
+		if (++tmo > 1000000) {
+			_halt();
+			return -3;
+		}
+	}
+	CA35SSC->CHGCLKREQ_WC1 = 1; // switch to PLL
+	return 0;
+
+}
+
+// m is 1..63, n is 20..320
+int32_t rcc_set_pll(uint32_t plln,uint32_t src,uint32_t m,uint32_t n,uint32_t d1,uint32_t d2)
+{
+	if (plln<2 || plln>8 || src>2 || m<1 || m>63 || n<20 || n>320 || d1<1 || d1>7 || d2<1 || d2>7) return -1;
+	struct PLL_TypeDef *PLL = (struct PLL_TypeDef*)(RCC_BASE+pll_2_8[plln-2]);
+	PLL->CFGR1 = 0;
+
+	int sh = 4*pll_muxes[plln-1];
+	RCC->MUXSELCFGR = (RCC->MUXSELCFGR & ~(3<<sh))|(src << sh);
+	PLL->CFGR2 = (n << RCC_PLL4CFGR2_FBDIV_Pos)|m;
+	PLL->CFGR4 = RCC_PLL4CFGR4_FOUTPOSTDIVEN;
+	PLL->CFGR6 = d1;
+	PLL->CFGR7 = d2;
+	PLL->CFGR1 = RCC_PLL4CFGR1_SSMODRST|RCC_PLL4CFGR1_PLLEN;
+	int tmo = 0;
+	while (!(PLL->CFGR1 & RCC_PLL4CFGR1_PLLRDY)) {
+		coro_yield();
+		if (++tmo > 1000000) return -2;
+	}
+	return 0;
+}
+
+
+int rcc_flx_chan_set(unsigned ch,unsigned src,unsigned div,unsigned enable);
 void qspi_set_divider(int div);
 static int run_clocks(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
 	uint32_t hse_fq = 0; // 0 means HSI
-	fetch_fdt_ints(fdt,root,"mp1,hse-khz",1,1,&hse_fq);
+	fetch_fdt_ints(fdt,root,"mp2,hse-khz",1,1,&hse_fq);
 	if (hse_fq && (RCC->OCRDYR & RCC_OCRDYR_HSERDY)==0) return -1;
-	xprintf("in clk %d %X\n",hse_fq,root);
 	
-	RCC->RDLSICR = 1;	// LSI on
-	RCC->DBGCFGR |= RCC_DBGCFGR_DBGCKEN;
-	RCC->RCK12SELR = hse_fq ? 1:0;
-	RCC->RCK3SELR = hse_fq ? 1:0;
-	RCC->RCK4SELR = hse_fq ? 1:0;
-	int i,div1=0,plls=0;
+	int i,plls=0;
 	uint32_t args[5];
-	for (i=0;i<4;i++) {
-		// pllN = <prediv mul P Q R>
-		char buf[12] = "mp1,pll1"; buf[7] = '1'+i;
+	for (i=0;i<8;i++) {
+		// pllN = <src prediv mul d1 d2> | src:0=hsi,1=hse,2=msi
+		char buf[12] = "mp2,pll1"; buf[7] = '1'+i;
 		if (fetch_fdt_ints(fdt,root,buf,5,5,args)<=0) continue;
-		if (i<=1 && !div1) div1 = args[0];
-		if (i<=1 && args[0] != div1) return -2; // div1/2 must be the same
-		int sts = set_pll(i+1,hse_fq?hse_fq:64000,args[0],args[1],
-				args[2],args[3],args[4]);
+		int32_t sts;
+		if (i) sts = rcc_set_pll(i+1,args[0],args[1],args[2],args[3],args[4]);
+		else sts = rcc_set_pll1(args[0],args[1],args[2],args[3],args[4]);
 		if (sts<0) return sts;
 		plls |= 1<<i;
 	}
-	if (fetch_fdt_ints(fdt,root,"mp1,apb-divs",5,5,args)>0) {
+	for (i=0;i<64;i++) {
+		// flxNN = <src div> | src:0..4=PLL4..8,5=hsi,6=hse,7=msi,D=lsi,E=lse
+		char buf[12]; xsnprintf(buf,10,"mp2,flx%02d",i);
+		if (fetch_fdt_ints(fdt,root,buf,2,2,args)<=0) continue;
+		int32_t sts = rcc_flx_chan_set(i,args[0],args[1],1);
+		if (sts<0) return sts;
+	}
+	if (fetch_fdt_ints(fdt,root,"mp2,apb-divs",5,5,args)>0) {
 		for (i=0;i<5;i++) 
-			args[i] = clamp_int_warn(args[i],0,3);
+			args[i] = clamp_int_warn(args[i],0,4);
 		RCC->APB1DIVR = args[0]; RCC->APB2DIVR = args[1];
 		RCC->APB3DIVR = args[2]; RCC->APB4DIVR = args[3];
-		RCC->APB5DIVR = args[4];
+		RCC->APBDBGDIVR = args[4];
 	}
-	if (fetch_fdt_ints(fdt,root,"mp1,rtc-div",1,1,args)>0)
+	if (fetch_fdt_ints(fdt,root,"mp2,rtc-div",1,1,args)>0)
 		RCC->RTCDIVR = clamp_int_warn(args[0],1,64)-1;
-	if (plls & 1) RCC->MPCKSELR = 2;	// MPU from PLL
-	if (plls & 2) RCC->ASSCKSELR = 2;	// AXI from PLL
-	if (plls & 4) RCC->MSSCKSELR = 3;	// MCU from PLL3P
-	RCC->AXIDIVR = 0;	// seems it is 2 after boot
+	if (fetch_fdt_ints(fdt,root,"mp2,lsm-div",1,1,args)>0)
+		RCC->LSMCUDIVR = clamp_int_warn(args[0],1,2)-1;
 	if (hse_fq) stgen_setup(hse_fq,1,1);
-	if (fetch_fdt_ints(fdt,root,"mp1,qspi-div",1,1,args)>0)
-		qspi_set_divider(clamp_int_warn(args[0],1,64));
 	return 0;
 }
-
+#if 0
 static int run_lse(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
@@ -684,20 +629,21 @@ static int run_rtc(struct module_desc_t *dsc,struct boot_param_header *fdt,
 	return 0;
 }
 
-DECLARE_MOD(mp1_hse) {
-	.name = "mp1,hse", .run = run_hse
-};
-DECLARE_MOD(mp1_csi_comp) {
-	.name = "mp1,csicomp", .run = run_csi_comp
-};
-DECLARE_MOD(mp1_clocks) {
-	.name = "mp1,clocks", .run = run_clocks
-};
 DECLARE_MOD(mp1_lse) {
 	.name = "mp1,lse", .run = run_lse
 };
 DECLARE_MOD(mp1_rtc) {
 	.name = "mp1,rtc", .run = run_rtc
+};
+DECLARE_MOD(mp1_csi_comp) {
+	.name = "mp1,csicomp", .run = run_csi_comp
+};
+#endif
+DECLARE_MOD(mp1_hse) {
+	.name = "mp1,hse", .run = run_hse
+};
+DECLARE_MOD(mp1_clocks) {
+	.name = "mp2,clocks", .run = run_clocks
 };
 
 static int run_gpio(struct module_desc_t *dsc,struct boot_param_header *fdt,
@@ -722,7 +668,7 @@ static int run_gpio(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		for (i=0;i<sz;i++,arg+=3) {
 			xprintf("setup mem %X %X %X\n",arg[0],arg[1],arg[2]);
 			if (arg[0] & 3) continue; // bad address
-			uint32_t *p = (uint32_t*)arg[0];
+			uint32_t *p = (uint32_t*)(uint64_t)arg[0];
 			if (arg[2]) *p = (*p & arg[2]) | arg[1];
 			else *p = arg[1];
 			coro_yield();

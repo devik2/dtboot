@@ -19,7 +19,7 @@ static int verify(int data)
 	int i;
 	const struct mtd_chip_t *chip = prog_dev->chip;
 	int pg1 = prog_a >> chip->page_sh, pg2 = (prog_a+prog_l-1) >> chip->page_sh;
-	const char *pa = (char*)prog_s;
+	const char *pa = (char*)(uintptr_t)prog_s;
 	int sz = 1 << chip->page_sh;
 	for (i=pg1; i<=pg2; i++) {
 		prog_dev->read_page(prog_dev,i,mtd_buf,sz);
@@ -148,6 +148,13 @@ static void erase_eb() // use pagenumber as input !
 		xprintf("error erasing %X: %d\n",prog_a,e);
 	}
 }
+static void write_pg() // write prog_l to first word
+{
+	int e;
+	if ((e=prog_dev->write_page(prog_dev,prog_a,(uint8_t*)&prog_l,4))<0) {
+		xprintf("error write %X: %d\n",prog_a,e);
+	}
+}
 
 static void make_bb()
 {
@@ -164,65 +171,18 @@ static void make_bb()
 	}
 }
 
-// doesn't logically belong here but.. it is simplest way
-// it send 2 pulses for each listed pin as part of PCB test
-static void pintest()
+#define QMO_RD  1
+#define QMO_WR  2
+#define QMO_DBL  4
+#define QMO_QDL  8
+#define QAD(n)  (n<<4) // address bytes 0..4
+int qspi_xact(int cmd,int addr,int mode,uint32_t *_buf,int len);
+static void do_test()
 {
-	static const uint16_t plist[9] = { // bits to test in PA...PI
-		0x5f7, 0xffbb, 0x3ff7, 0xc7ff, 
-		0xff4c, 0x1800, 0xfff0, 0x22c0, 0xc70 };
-	int i,j;
-	xprintf("run pintest\n");
-	for (i=0;i<sizeof(plist)/2;i++) {
-		uint16_t sh = plist[i];
-		for (j=0;j<16;j++,sh>>=1) {
-			if (!(sh & 1)) continue;
-			gport_t port = ((i+1)<<4)|j;
-			gpio_setup_one(port,PM_OUT|PM_DFLT(0),0);
-			udelay(100);
-			gpio_out(port,1); udelay(100);
-			gpio_out(port,0); udelay(100);
-			gpio_out(port,1); udelay(100);
-			gpio_out(port,0); udelay(100);
-			gpio_setup_one(port,PM_AN,0);
-		}
-	}
-}
+	uint8_t *pbuf = mtd_buf;
+	//prog_dev->read_seq(mtd,page,pbuf,1,MTDRF_SKIPBB);
+	qspi_xact(0x2,prog_a,prog_l,(uint32_t*)"TEST1234",prog_l&3 ? 8:0);
 
-#define SPI SPI1
-static void spi_info()
-{
-	xprintf("spi sr=0x%X\n",SPI->SR);
-}
-
-static void spitest()
-{
-	xprintf("run spitest2\n");
-	RCC->MP_APB1ENSETR = RCC_MP_APB1ENSETR_SPI2EN;
-	RCC->MP_APB2ENSETR = RCC_MP_APB2ENSETR_SPI1EN;
-	(void)RCC->MP_APB1ENSETR;
-	RCC->CPERCKSELR = 0;
-	RCC->SPI2S23CKSELR = 3;
-	RCC->SPI2S1CKSELR = 3;
-	gpio_setup_one(PM_H(6),PM_OUT|PM_ALT,5);
-	gpio_setup_one(PM_H(10),PM_OUT|PM_ALT,6);
-	gpio_setup_one(PM_G(1),PM_IN|PM_ALT,5);
-
-	gpio_setup_one(PM_A(7),PM_OUT|PM_ALT,5); // SPI1CLK at EXP_CS2
-	gpio_setup_one(PM_A(3),PM_OUT|PM_ALT,5);
-	gpio_setup_one(PM_A(6),PM_IN|PM_ALT,5);
-
-	SPI->CR1 = SPI_CR1_SSI;
-	SPI->CFG1 = SPI_CFG1_MBR_2|7;
-	SPI->CFG2 = SPI_CFG2_AFCNTR|SPI_CFG2_SSM|SPI_CFG2_CPHA|SPI_CFG2_CPOL|SPI_CFG2_MASTER|0x11;
-	SPI->CR2 = 4;
-	spi_info();
-	SPI->CR1 = SPI_CR1_SSI|SPI_CR1_SPE;
-	SPI->TXDR = 0xaabbccdd;
-	SPI->IFCR = 0xffff;
-	spi_info();
-	SPI->CR1 = SPI_CR1_SSI|SPI_CR1_SPE|SPI_CR1_CSTART;
-	spi_info();
 }
 
 void prog_ext()
@@ -239,8 +199,8 @@ void prog_ext()
 #if STORE_BBT
 	if (prog_s == 5) { dump_bbt(); goto pend; }
 #endif
-	if (prog_s == 6) { pintest(); goto pend; }
-	if (prog_s == 7) { spitest(); goto pend; }
+	if (prog_s == 6) { do_test(); goto pend; }
+	if (prog_s == 7) { write_pg(); goto pend; }
 	const struct mtd_chip_t *chip = prog_dev->chip;
 	xprintf("ext program from %X to %s at %X sz %d\n",
 			prog_s,chip->name,prog_a,prog_l);
@@ -266,7 +226,7 @@ void prog_ext()
 	}
 	int pg1 = prog_a >> chip->wr_sh, pg2 = (prog_a+prog_l-1) >> chip->wr_sh;
 	verify(0);
-	const char *pa = (char*)prog_s;
+	const char *pa = (char*)(uintptr_t)prog_s;
 	for (i=pg1; i<=pg2 && 1; i++) {
 		if ((i&255)==0 || i==pg2 || i==pg1) xprintf("prog subpage %X\n",i);
 		e = prog_dev->write_page(prog_dev,i,pa,1 << chip->wr_sh);
@@ -283,5 +243,5 @@ pend:
 	xprintf("done.\n");
 	prog_l = 0;
 	console_sync();
-	asm("bkpt");
+	_halt();
 }

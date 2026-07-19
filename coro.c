@@ -7,10 +7,10 @@
 #define CORF_RUN 2		// runable
 #define CORF_JOIN 4		// joinable
 struct _coro_t {
-        uint32_t *sp;
+        uint64_t *sp;
 	const char *name;
-        int flags; // CORF_XXX
-        uint32_t stack[CORO_SSZ];
+        long flags; // CORF_XXX
+        uint64_t stack[CORO_SSZ];
 } coro_pool[CORO_POOL];
 uint8_t coro_current;
 
@@ -25,9 +25,9 @@ static int coro_free_index()
 
 static void coro_create(coro_t *a,coro_fn fn,void *arg,const char *name)
 {
-        a->sp = a->stack + CORO_SSZ - 12;
-        a->sp[10] = (uint32_t)fn;
-	a->sp[0] = (uint32_t)arg;
+        a->sp = a->stack + CORO_SSZ - 16;
+        a->sp[1] = (uintptr_t)fn;
+	a->sp[12] = (uintptr_t)arg;
 	a->name = name;
         a->flags = CORF_USED|CORF_RUN;
 //        xprintf("coro_create a=%X fn=%X sp=%X\n",a,fn,a->sp);
@@ -52,13 +52,14 @@ void coro_yield()
                 if (i>=CORO_POOL) i = 0; 
                 if (!(coro_pool[i].flags & CORF_RUN)) continue;
                 // runable task
+		if (i == coro_current) return;
                 coro_current = i;
                 coro_switch(coro_pool+cur,coro_pool+i);
                 break;
         }
         if (!(coro_pool[coro_current].flags & CORF_RUN)) {
                 xprintf("all are dead\n");
-		asm("bkpt");
+		_halt();
         }
 }
 

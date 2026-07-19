@@ -36,18 +36,61 @@ static int tc58_init(struct mtd_dev_t *dev)
 	return 0;
 }
 
+#define QAD(n)  (n<<4) // address bytes 0..4
+int qspi_xact(int cmd,int addr,int mode,uint32_t *_buf,int len);
+void qspi_wait();
+
+// WARNING: There is internet thread about stuck OIP; also I've seen 0x18 in B0
+// when I wrote 0x11. Power cycle was needed.
+static int as5f_init(struct mtd_dev_t *dev)
+{
+	mtd_nand_set_feat(0xb0,0x11); // enable ECC & QUAD
+	uint32_t b0 = mtd_nand_get_feat(0xb0);
+	xprintf("NAND, (re)enable ECC (B0=%X)\n",b0);
+	xprintf("NAND, ABC0: %X %X %X\n",mtd_nand_get_feat(0xa0),mtd_nand_get_feat(0xb0),
+			mtd_nand_get_feat(0xc0));
+	return 0;
+}
+
+static int s35_init(struct mtd_dev_t *dev)
+{
+	mtd_nand_set_feat(0xa0,0x7e);	// A0
+	mtd_nand_set_feat(0xa0,1);	// unlock blocks
+	mtd_nand_set_feat(0xb0,0x10);	// ECC on
+	xprintf("NAND, ABC0: %X %X %X\n",mtd_nand_get_feat(0xa0),mtd_nand_get_feat(0xb0),
+			mtd_nand_get_feat(0xc0));
+	return 0;
+}
+
+static int mx25_init(struct mtd_dev_t *dev)
+{
+	// enable HIperf and QE
+	xprintf("NOR MX25, set conf\n");
+	qspi_xact(0x6,0,0,NULL,0);
+	qspi_wait();
+	qspi_xact(0x1,0x400002,QAD(3),NULL,0);
+	qspi_wait();
+	return 0;
+}
+
 static struct mtd_chip_t fchips[] = {
 	// flags,pgsh,ebsh,,wr_sh,eccsh,ebcnt,id
+	{ MTDF_NAND,11,6,0,11,6,4096,0x23AAEF00,0xffffff00,"W25N04KV", w25n_init },
 	{ MTDF_NAND,11,6,0,11,6,1024,0x21AAEF00,0xffffff00,"W25N01GV", w25n_init },
 	{ MTDF_NAND,11,6,0,11,6,512,0x20AAEF00,0xffffff00,"W25N512GV", w25n_init },
 	{ MTDF_NAND,11,6,0,11,6,1024,0xaaef,0xffff,"W25N01GV", w25n_init },
+	{ MTDF_NAND,12,6,0,12,6,4096,0x8D5200,0xffff00,"AS5F18G04SND", as5f_init },
+	{ MTDF_NAND,11,6,0,11,6,4096,0x3B5200,0xffff00,"AS5F34G04SNDA", as5f_init },
+	{ MTDF_NAND,11,6,0,11,6,4096,0x350100,0xffff00,"S35ML04G3WH", s35_init },
 	{ MTDF_NAND,12,6,0,12,7,2048,0xed98,0xffff,"TC58CVG2S0HRAIJ",
 		tc58_init },
 	{ MTDF_NAND|MTDF_RDRAND,11,6,0,11,7,1024,0x142C,0xffff,"MT29F1G01_3V3" },
 	{ MTDF_NAND|MTDF_RDRAND|MTDF_2PL,
-		11,6,0,11,7,2048,0x2C242C00,0xffffffff,"MT29F2G01" },
+		11,6,0,11,7,2048,0x242C00,0xffff00,"MT29F2G01" },
+	{ MTDF_NAND, 12,6,0,12,7,2048,0x352C00,0xffff00,"MT29F4G01ABB" },
 	{ 0,8,8,0,8,0,1024,0x199d,0xffff,"IS25[LW]P512M" },
 	{ 0,9,9,0,9,0,256,0x1901,0xffff,"S25FL512S" },
+	{ MTDF_NWST,8,8,0,8,0,128,0x17c2,0xffff,"MX25R6435F",mx25_init },
 	{ MTDF_DYN, },
 	{ MTDF_DYN, },
 	{ 0,0,  }

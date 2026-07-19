@@ -15,107 +15,116 @@
 #define QDMY  0x100
 #define QDMA  0x200
 
+// 0x40430000
+#define QUADSPI OCTOSPI1
+
 void qspi_set_divider(int div)
 {
+//	div = 1; // TODO
 	xprintf("QSPI: set divider %d\n",div);
-	QUADSPI->CR = (QUADSPI->CR & ~QUADSPI_CR_PRESCALER_Msk)
-		|((div-1) << QUADSPI_CR_PRESCALER_Pos);
+	QUADSPI->DCR2 = div-1;
 }
 
 #define DMA_BLKSZ 16
-static void qspi_init()
+static void qspi_init(int lines)
 {
-	RCC->QSPICKSELR = 0; // use AXI clk
-	RCC->MP_AHB6ENSETR = RCC_MP_AHB6ENCLRR_QSPIEN;
-	RCC->MP_NS_AHB6ENSETR = RCC_MP_NS_AHB6ENSETR_MDMAEN;
-	(void)RCC->MP_AHB6ENSETR;
-	(void)RCC->MP_NS_AHB6ENSETR;
+	rcc_en_clock(&RCC->OSPI1CFGR);
+	rcc_en_clock(&RCC->OSPIIOMCFGR);
+	rcc_en_clock(&RCC->HPDMA1CFGR);
+	rcc_flx_chan_set(48,5,1,1); // HSI as kernel clk
 
-	// 0x58003000
 	QUADSPI->CR = 0;
 	udelay(100);
-	QUADSPI->DCR = 27 << QUADSPI_DCR_FSIZE_Pos; // 256MB size
-	QUADSPI->CR = QUADSPI_CR_EN|((DMA_BLKSZ-1)<<QUADSPI_CR_FTHRES_Pos);
+	QUADSPI->DCR1 = (29 << OCTOSPI_DCR1_DEVSIZE_Pos) // 1GB size
+		|OCTOSPI_DCR1_DLYBYP|OCTOSPI_DCR1_MTYP_1;
+	QUADSPI->CR = OCTOSPI_CR_EN|((DMA_BLKSZ-1)<<OCTOSPI_CR_FTHRES_Pos);
 
 	struct gpio_setup_t qpins[] = {
-#if MPU_TYPE == 15
-		{ PM_B(6), PM_ALT|PM_SPD(2), 10, },
-                { PM_F(8), PM_ALT|PM_SPD(2), 10, },
-                { PM_F(9), PM_ALT|PM_SPD(2), 10, },
-                { PM_F(10), PM_ALT|PM_SPD(2), 9, }
-#elif MPU_TYPE == 13
-		{ PM_D(4), PM_ALT|PM_SPD(2), 9, }, // CLK
-		{ PM_D(5), PM_ALT|PM_SPD(2), 9, }, // IO0
-		{ PM_E(9), PM_ALT|PM_SPD(2), 9, }, // IO1
-		{ PM_E(14),PM_ALT|PM_SPD(2), 9, }  // NCS
+		{ PM_D(0), PM_ALT|PM_SPD(2), 10, }, // CLK
+		{ PM_D(3), PM_ALT|PM_SPD(2), 10, }, // NCS
+		{ PM_D(4), PM_ALT|PM_SPD(2), 10, }, // IO0
+		{ PM_D(5),PM_ALT|PM_SPD(2), 10, }, // IO1
+		{ PM_D(6),PM_ALT|PM_SPD(2), 10, },
+		{ PM_D(7),PM_ALT|PM_SPD(2), 10, },
+#if 0
+		{ PM_D(8),PM_ALT|PM_SPD(2), 10, },
+		{ PM_D(9),PM_ALT|PM_SPD(2), 10, },
+		{ PM_D(10),PM_ALT|PM_SPD(2), 10, },
+		{ PM_D(11),PM_ALT|PM_SPD(2), 10, },
 #endif
+		{0} 
 	};
-	gpio_setup(qpins,sizeof(qpins)/sizeof(struct gpio_setup_t));
-
+	gpio_setup(qpins,99);
+	if (lines <= 2) { // for memories which needs HOLD/WP
+		gpio_setup_one(PM_D(6),PM_OUT,0);
+		gpio_setup_one(PM_D(7),PM_OUT,0);
+		gpio_out(PM_D(6),1);
+		gpio_out(PM_D(7),1);
+	}
 	// start at 21MHz, should be ok for all boards
 	qspi_set_divider(3); 
 }
 
-static void qspi_set_port(int p)
+int split_dma;
+void wait_dma()
 {
-	QUADSPI->CR = (QUADSPI->CR & ~QUADSPI_CR_FSEL)|(p?QUADSPI_CR_FSEL:0);
+	while (!(HPDMA1_Channel12->CSR & DMA_CSR_TCF)) coro_yield();
 }
 
-static void read_by_mdma(void *dst,int bytes)
+static void read_by_dma(void *dst,int bytes)
 {
-	// use channel 0 for QSPI read
-	MDMA_Channel0->CIFCR = 0x1f;	// clear all flags
-#if MPU_TYPE == 13
-	MDMA_Channel0->CTBR = 26;	// QSPI FIFO trigger
-#else
-	MDMA_Channel0->CTBR = 22;	// QSPI FIFO trigger
-#endif
-	MDMA_Channel0->CSAR = (int)&QUADSPI->DR;
-	MDMA_Channel0->CDAR = (int)dst;
-	MDMA_Channel0->CBNDTR = bytes;
-	MDMA_Channel0->CTCR = MDMA_CTCR_BWM|((DMA_BLKSZ-1)<<MDMA_CTCR_TLEN_Pos)|
-		MDMA_CTCR_DINCOS_1|MDMA_CTCR_SINCOS_1|
-		MDMA_CTCR_DBURST_0|MDMA_CTCR_SBURST_0|
-		MDMA_CTCR_DSIZE_1|MDMA_CTCR_SSIZE_1|MDMA_CTCR_DINC_1;
-	MDMA_Channel0->CCR = MDMA_CCR_EN;
+	// 0x50400000
+//	call_smc(SMC_CHK_IAC,0,0);
+	HPDMA1_Channel12->CTR1 = DMA_CTR1_SDW_LOG2_1|DMA_CTR1_DDW_LOG2_1|DMA_CTR1_DINC;
+	HPDMA1_Channel12->CTR2 = 2|DMA_CTR2_TCEM_0; // OSPI1
+	HPDMA1_Channel12->CBR1 = (bytes/8)|(7<<16);
+	HPDMA1_Channel12->CSAR = (uint32_t)&QUADSPI->DR;
+	HPDMA1_Channel12->CDAR = (uint32_t)dst;
+	HPDMA1_Channel12->CFCR = 0x7f00;
+	HPDMA1_Channel12->CCR = DMA_CCR_EN;
 
-	while (!(MDMA_Channel0->CISR & MDMA_CISR_CTCIF)) coro_yield();
+	// invalidate dst cache in meantime
+	for (;bytes>0;bytes-=64,dst += 64) __asm__ volatile(
+                "dc  ivac,%0"::"r"(dst) );
+	if (!split_dma) wait_dma();
+//	call_smc(SMC_CHK_IAC,0,0);
 }
 
+uint32_t qs_ccr_or;
 int qspi_xact(int cmd,int addr,int mode,uint32_t *_buf,int len)
 {
+//	mode &= ~QDMA;
 	uint8_t *buf = (uint8_t*)_buf; // current code is byte-based
 	int asz = (mode >> 4) & 7;
-	int dwid = (mode & (QMO_DBL|QMO_QDL) ? QUADSPI_CCR_DMODE_1 : 0)|
-		(mode & QMO_DBL ? 0 : QUADSPI_CCR_DMODE_0);
-	QUADSPI->CR = (QUADSPI->CR & ~QUADSPI_CR_DMAEN)
-		|(mode & QDMA ? QUADSPI_CR_DMAEN:0);
+	int dwid = (mode & (QMO_DBL|QMO_QDL) ? OCTOSPI_CCR_DMODE_1 : 0)|
+		(mode & QMO_DBL ? 0 : OCTOSPI_CCR_DMODE_0);
+	QUADSPI->CR = (QUADSPI->CR & ~(OCTOSPI_CR_DMAEN|OCTOSPI_CR_FMODE_Msk) )
+		|(mode & QDMA ? OCTOSPI_CR_DMAEN:0)
+		|((mode & QMO_RD) << OCTOSPI_CR_FMODE_Pos);
 	QUADSPI->DLR = len ? len - 1 : 0;
-	QUADSPI->CCR = ((mode & QMO_RD) << QUADSPI_CCR_FMODE_Pos)
-			//|(1<<29) // FRCM
-			|(mode & QDMY ? 8<<QUADSPI_CCR_DCYC_Pos : 0)
-			|(len ? dwid : 0)
-			|(((asz - 1) & 3) << QUADSPI_CCR_ADSIZE_Pos)
-			|(asz ? QUADSPI_CCR_ADMODE_0 : 0)
-			|(mode & QNOINS ? 0 : QUADSPI_CCR_IMODE_0)
-			|cmd;
+	QUADSPI->TCR = mode & QDMY ? 8 : 0;
+	if (qs_ccr_or) QUADSPI->CCR = qs_ccr_or; 
+	else QUADSPI->CCR = (len ? dwid : 0)
+			|(((asz - 1) & 3) << OCTOSPI_CCR_ADSIZE_Pos)
+			|(asz ? OCTOSPI_CCR_ADMODE_0 : 0)
+			|(mode & QNOINS ? 0 : OCTOSPI_CCR_IMODE_0);
+	QUADSPI->IR = cmd;
 	if (asz) QUADSPI->AR = addr;
 	if (mode & QDMA) {
-		read_by_mdma(buf,len);
+		read_by_dma(buf,len);
 		return 0;
 	}
 	int tmo = 0, olen = len;
 	while (len>0 && mode & 3)  {
 		int st = QUADSPI->SR;
-		int lev = (st >> QUADSPI_SR_FLEVEL_Pos) & 0x3f;
-		if (mode & QMO_WR) lev = 32-lev;
+		int lev = (st >> OCTOSPI_SR_FLEVEL_Pos) & 0x7f;
+		if (mode & QMO_WR) lev = 64-lev;
 		int sz = len < lev ? len : lev; // smaller one
 		if (!lev || (lev<4 && len>=4)) {
 			coro_yield();
-			if (++tmo > 1000000) {
+			if (++tmo > 100000) {
 				xprintf("QSPI tmo cmd=%X a=%X m=%X l=%d al=%d st=%X\n",
 						cmd,addr,mode,olen,len,st);
-				//asm("bkpt");
 				return -1;
 			}
 			continue; 
@@ -134,7 +143,7 @@ int qspi_xact(int cmd,int addr,int mode,uint32_t *_buf,int len)
 
 void qspi_wait()
 {
-	while (QUADSPI->SR & QUADSPI_SR_BUSY) coro_yield();
+	while (QUADSPI->SR & OCTOSPI_SR_BUSY) coro_yield();
 }
 
 static uint32_t nor_read_id()
@@ -260,6 +269,7 @@ static int nor_read_page(struct mtd_dev_t *dev,uint32_t page,uint8_t *buf,int sz
 
 static int nor_write_page(struct mtd_dev_t *dev,uint32_t pg,const uint8_t *buf,int sz)
 {
+	const struct mtd_chip_t *chip = dev->chip;
 	CHK_BUF;
 	qspi_xact(0x6,0,0,NULL,0);
 	qspi_wait();
@@ -267,6 +277,7 @@ static int nor_write_page(struct mtd_dev_t *dev,uint32_t pg,const uint8_t *buf,i
 	//xprintf(" nor wr to %X\n",addr);
 	qspi_xact(0x2,addr,QMO_WR|QAD(3),(uint32_t*)buf,sz);
 	int sts = flash_wait(dev);
+	if (chip->flags & MTDF_NWST) return 0;
 	return sts & 0x40 ? -2 : 0;
 }
 
@@ -301,11 +312,11 @@ int mtd_generic_read_seq(struct mtd_dev_t *dev,uint32_t page,uint8_t *buf,
 		int pg_cnt,int flags);
 int mtd_detect_qspi(struct mtd_dev_t *dev,int bus,int flags)
 {
-	qspi_init();
-	qspi_set_port(bus);
+	int data_lines = 2;
+	qspi_init(data_lines);
 	qspi_wait();
 	uint32_t tmp;
-ag:
+//ag:
 	qspi_xact(0xff,0,QMO_WR,&tmp,0); // send reset
 	qspi_wait();
 	int id = nor_read_id(), nand = 0;
@@ -327,7 +338,7 @@ ag:
 	dev->chip = chip;
 	dev->drv_name = nand ? "QSPI-NAND" : "QSPI-NOR";
 	dev->drv_priv[0] = bus;
-	dev->drv_priv[1] = 2; // paralel bits for QSPI reading
+	dev->drv_priv[1] = data_lines; // paralel bits for QSPI reading
 	dev->erase = flash_erase;
 	if (chip->init_fn) chip->init_fn(dev);
 	if (nand) {

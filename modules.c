@@ -44,7 +44,7 @@ static int index_modules(struct boot_param_header *fdt,uint32_t *root)
 	fsc.verbose = 0;
 	int rv = scan_fdt(&fsc,root);
 	// NOTE: _GNU_SOURCE needed to get correct qsort_r
-	qsort_r(idx,idx_sz,sizeof(uint32_t),qcmp,(void*)fdt);
+	qsort_r(idx,idx_sz,sizeof(uintptr_t),qcmp,(void*)fdt);
 	if (rv == -1) return -1; // too much sections
 	return idx_sz;
 }
@@ -71,8 +71,8 @@ static void run_worker(void *_arg)
 	uint8_t live = (arg >> 8) & 0xff;
 	uint8_t thr_id = thr_map[coro_current];
 	uint8_t start = arg & 0xff;
-//	xprintf("[%d] run worker 0x%X thr_id %d coro %d\n",
-//			get_ms_precise(),arg,thr_id,coro_current);
+	xprintf("[%d] run worker 0x%X thr_id %d coro %d cnt %d\n",
+			get_ms_precise(),arg,thr_id,coro_current,idx_sz);
 	for (int i=start;i<idx_sz;i++) {
 		char *ptr;
 		if (lookup_fdt(g_fdt,"compatible",(uint32_t**)&ptr,idx[i])<2) {
@@ -109,10 +109,10 @@ static void run_worker(void *_arg)
 			if ((live>>thr)&1) continue; // already live
 			// need to start as subthread
 			live |= 1<<thr;
-			uint32_t ag = (live<<8)|i;
+			uintptr_t ag = (live<<8)|i;
 			int cid = coro_new(&run_worker,(void*)ag,1,NULL);
 			thr_map[cid] = thr;
-//			xprintf("new thr %d ag %x\n",cid,ag);
+			xprintf("new thr %d ag %x\n",cid,ag);
 			continue;
 		}
 		console_sync();		
@@ -134,7 +134,7 @@ void run_modules(struct boot_param_header *fdt,uint32_t *root,int _no_par)
 {
 	memset(thr_map,0,sizeof(thr_map));
 	index_modules(fdt,root);
-	g_fdt = fdt; no_par = _no_par;
+	g_fdt = fdt; no_par = _no_par |1; //TODO
 	run_worker((void*)0x100);
 }
 

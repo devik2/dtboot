@@ -33,7 +33,7 @@ struct fdt_scan_data {
 	char verbose;
 	uint8_t depth;
 	void *arg1;
-	uint32_t arg2[4];
+	uintptr_t arg2[4];
 	// -x as error (stop)
 	int (*prop_found)(struct fdt_scan_data *dat,const char *nm,
 			const char *val,int sz,uint32_t *node);

@@ -7,6 +7,7 @@
 
 #define MTDF_RDRAND 0x10	// Micron style read random supported
 #define MTDF_2PL 0x20		// dual plane
+#define MTDF_NWST 0x40		// no write status can be read
 #define MTDF_DYN 0x80		// dynamic record
 struct mtd_dev_t;
 struct mtd_chip_t {

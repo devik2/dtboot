@@ -4,8 +4,6 @@
 #include "stm32mp1.h"
 #include "fdt.h"
 
-#define CBAR_MASK                       0xFFFF8000
-#define GIC_DIST_OFFSET         0x1000
 #define GICD_SGIR               0x0f00
 #define GICD_CTLR               0x0000
 #define GICD_TYPER              0x0004
@@ -22,20 +20,10 @@
 #define CPUST_OFF 1
 #define CPUST_PEND 2
 
-static uint32_t stm32mp_get_gicd_base_address()
-{
-	uint32_t periphbase;
-
-	/* get the GIC base address from the CBAR register */
-	asm("mrc p15, 4, %0, c15, c0, 0\n" : "=r" (periphbase));
-
-	return (periphbase & CBAR_MASK) + GIC_DIST_OFFSET;
-}
-
 void stm32mp_init_gic(int cpu2)
 {
 	// need to do in secure state
-	uint32_t gic_dist_addr = stm32mp_get_gicd_base_address();
+	uintptr_t gic_dist_addr = GIC_DISTRIBUTOR_BASE;
 	volatile uint32_t *ig = (void*)(gic_dist_addr + GICD_IGROUPRn);
 	if (!cpu2) {
 		volatile uint32_t *ctl = (void*)(gic_dist_addr + GICD_CTLR);
@@ -146,18 +134,17 @@ __attribute__ ((weak)) void reset_hook()
 
 __attribute__ ((weak)) int reset_machine() 
 {
-	RCC->MP_GRSTCSETR = RCC_MP_GRSTCSETR_MPSYSRST;
+	RCC->GRSTCSETR = RCC_GRSTCSETR_SYSRST;
 	for (;;) __WFI();
 	return 0;
 }
 
 uint32_t psci_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 {
-	if (cmd == 0x84000000) { // version
-#if MPU_TYPE == 15
-		sec_cpu_state = CPUST_OFF; 
-#endif
-		return 0x2;
+	if (cmd == 0x84000000) return 0x10000; // PSCI ver
+	if (cmd == 0x8400000a) { // PSCI feats (Linux queries SMCCC here too)
+		if ((a1 & 0xfffffffe) == 0x80000000) return 0;
+		return -1;
 	}
 #if MPU_TYPE == 15
 	if (cmd == 0x84000002) { // CPU_OFF
@@ -197,11 +184,3 @@ uint32_t psci_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 	return -1;
 }
 
-void psci_setup(struct boot_param_header *fdt,uint32_t *root)
-{
-	uint32_t cpu_on = 0;
-	fetch_fdt_ints(fdt,root,"psci-cpu-on",1,1,&cpu_on);
-#if MPU_TYPE == 15
-	can_boot_sec = cpu_on;
-#endif
-}

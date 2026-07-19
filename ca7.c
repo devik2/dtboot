@@ -1,8 +1,22 @@
 #include <string.h>
-#include <ctype.h>
 #include "xprintf.h"
 #include "system.h"
 #include "ca7.h"
+
+void wait_for_halt()
+{
+	uint64_t edscr;
+
+	for (;;) {
+	//	asm volatile("msr oslar_el1, %0" :: "r"(1));
+		asm volatile("mrs %0, mdscr_el1" : "=r" (edscr));
+	//	asm volatile("msr oslar_el1, %0" :: "r"(0));
+        	if (edscr & (1<<14)) { // check HDE (halting debug)
+			for (volatile int i=0;i<1000000;i++);
+			_halt();
+		}
+	}
+}
 
 void panic(const char *fmt,...)
 {
@@ -11,16 +25,16 @@ void panic(const char *fmt,...)
 	va_start(arp, fmt);
 	if (fmt) xvfprintf(&xstream_out, fmt, arp);
 	va_end(arp);
-	asm("bkpt");
-	for (;;);
+	// delay for case debugger is not attached yet
+	for (volatile int i=0;i<10000000;i++);
+	_halt();
 }
 
 void cpu_info()
 {
 	int i;
 	uint32_t scr;
-//	asm("mrc p15, 0, %0, c1, c1, 0" : "=r" (scr));
-//	xprintf("SCR (sif,hce|sce,net,aw,fw|ea,fiq,irq,ns): %03X\n",scr);
+#if 0
 	for (i=0;i<1;i++) {
 		uint32_t sctlr,tmp;
 		tmp = (scr&0xfffffffe)|i;
@@ -34,7 +48,7 @@ void cpu_info()
 		//asm("mrc p15, 0, %0, c12, c0, 1" : "=r" (tmp));
 		//xprintf("NS%d,MVBAR: %08X\n",i,tmp);
 	}
-	//asm("mcr p15, 0, %0, c1, c1, 0" : : "r" (scr));
+#endif
 }
 
 struct bit_names {
@@ -66,8 +80,9 @@ static const struct bit_names __bn_sctlr[] = {
 };
 const struct bit_names *_bn_sctlr = __bn_sctlr;
 static const struct bit_names __bn_scr[] = {
+	{ 10,1,0,0,"rw" },
 	{ 9,1,0,0,"sif" }, { 8,1,0,0,"hce" }, { 7,1,0,0,"scd" }, { 6,1,0,0,"net" }, 
-	{ 5,1,0,0,"aw" }, { 4,1,0,0,"fw" }, { 3,1,0,0,"ea" }, { 2,1,0,0,"fiq" }, 
+	{ 3,1,0,0,"ea" }, { 2,1,0,0,"fiq" }, 
 	{ 1,1,0,0,"irq" }, { 0,1,0,0,"ns" }, { 0,0,0,0,NULL }
 };
 const struct bit_names *_bn_scr = __bn_scr;
@@ -75,7 +90,9 @@ const struct bit_names *_bn_scr = __bn_scr;
 static void strpicpy(char **dst,const char *src,int mode)
 {
 	while (*src && *src!='|') {
-		*((*dst)++) = mode==-1?*src:mode?toupper(*src):tolower(*src);
+		uint8_t c = *src;
+		if (mode>0) c -= 32;
+		*((*dst)++) = c;
 		src++;
 	}
 	**dst = 0;

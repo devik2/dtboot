@@ -11,6 +11,7 @@
 
 #define LFL_TOP 1
 #define LFL_SKIP 2
+uint32_t get_SP();
 static int scan_node(struct fdt_scan_data *dat,uint32_t *node,int pos,int flags)
 {
 	uint32_t *p = node;
@@ -36,10 +37,11 @@ static int scan_node(struct fdt_scan_data *dat,uint32_t *node,int pos,int flags)
 		}
 		if (bgs) skip = 1;
 	}
-	if (dat->verbose) printf ("node %s\n",dat->path);
+	if (dat->verbose) printf ("node '%s' @ %X\n",dat->path,(uint32_t)node);
 	p += align4(strlen(name)+1)/4;
 	for (;;) {
 		uint32_t tp = be_cpu(*p);
+		if (dat->verbose) printf (" tp %X sp %X\n",tp,get_SP());
 		if (tp == OF_DT_PROP) {
 			int sz = be_cpu(p[1]);
 			if (!skip && dat->prop_found) {
@@ -82,7 +84,10 @@ int scan_fdt(struct fdt_scan_data *dat,uint32_t *ptr)
 
 const char *fdt_get_node_name(struct fdt_scan_data *dat,uint32_t *p)
 {
-	if (be_cpu(*p) != OF_DT_BEGIN_NODE) return NULL;
+	if (be_cpu(*p) != OF_DT_BEGIN_NODE) {
+		printf("no node at %X\n",(uint32_t)p);
+		return NULL;
+	}
 	return (void*)(p+1);
 }
 
@@ -96,7 +101,7 @@ static int fdt_section(struct fdt_scan_data *dat,uint32_t *node)
 	const char *s = (const char*)dat->arg2[0];
 	//xprintf("%s\n",dat->path);
 	if (!strcmp(dat->path,s)) {
-		dat->arg2[2] = (uint32_t)node;
+		dat->arg2[2] = (uintptr_t)node;
 		return -1;
 	}
 	return 0;
@@ -106,12 +111,12 @@ static int fdt_find(struct fdt_scan_data *dat,const char *nm,
 		const char *val,int sz,uint32_t *node)
 {
 	const char *s = (const char*)dat->arg2[0];
-	if (dat->verbose) xprintf(" '%s' '%s' '%s' %d\n",dat->path,nm,s,dat->arg2[1]);
+	if (dat->verbose) xprintf("found '%s' '%s' '%s' %d\n",dat->path,nm,s,dat->arg2[1]);
 	//if (!strcmp(nm,"method")) asm("bkpt");
 	if (strcmp(nm,s+dat->arg2[1])) return 0;
 	if (dat->path[dat->arg2[1]?dat->arg2[1]-1:0]) return 0; // bad path length
 	if (dat->arg2[1] && strncmp(dat->path,s,dat->arg2[1]-1)) return 0;
-	dat->arg2[2] = (uint32_t)val;
+	dat->arg2[2] = (uintptr_t)val;
 	dat->arg2[3] = sz;
 	return -1;
 }
@@ -123,7 +128,7 @@ uint32_t *lookup_fdt_section(struct boot_param_header *hdr,
 	memset(&fsc,0,sizeof(fsc));
 	fsc.hdr = hdr;
 	fsc.begin = fdt_section;
-	fsc.arg2[0] = (uint32_t)path;
+	fsc.arg2[0] = (uintptr_t)path;
 	int rv = scan_fdt(&fsc,root);
 	if (rv != -1) return 0;
 	return (uint32_t*)fsc.arg2[2];
@@ -137,7 +142,7 @@ int lookup_fdt(struct boot_param_header *hdr,const char *path,
 	fsc.verbose = 0;
 	fsc.hdr = hdr;
 	fsc.prop_found = fdt_find;
-	fsc.arg2[0] = (uint32_t)path;
+	fsc.arg2[0] = (uintptr_t)path;
 	char *p = strrchr(path,'/');
 	fsc.arg2[1] = p ? p-path+1 : 0;
 	if (!p) fsc.begin = fdt_skip; // no '/', don't descend
@@ -154,7 +159,7 @@ static int fdt_find_ph(struct fdt_scan_data *dat,const char *nm,
 	uint32_t ph = be_cpu(*(uint32_t*)val);
 	if (dat->verbose) xprintf("PH '%s' %x %x\n",dat->path,ph,dat->arg2[0]);
 	if (ph != dat->arg2[0]) return 0;
-	dat->arg2[2] = (uint32_t)node;
+	dat->arg2[2] = (uintptr_t)node;
 	return -1;
 }
 

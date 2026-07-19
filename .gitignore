@@ -21,7 +21,9 @@
 *.hex
 *.bin
 *.stm32
+*.b64
 map.txt
+maps.txt
 
 Makefile.deps
 Module.symvers
@@ -29,3 +31,5 @@ modules.order
 *.swp
 *.su
 tags
+.claude
+CLAUDE.md

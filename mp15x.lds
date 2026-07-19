@@ -3,6 +3,8 @@ OUTPUT_ARCH(arm)
 ENTRY(_start)
 /* SEARCH_DIR("/usr/arm-linux-gnueabi/lib"); */
 
+_mstk = 0x2ffdf000;
+
 MEMORY {
 	ram (!rx) : o = 0x2ffc2500, l = 100k 
 }

@@ -2,18 +2,28 @@
 #define __STM32MP1_H 1
 
 #include <stdint.h>
+#define __packed __attribute((packed))
 #include "boot_api.h"
 #if MPU_TYPE == 15
- #include "stm32mp157axx_cm4.h"
+ #include "stm32mp157cxx_ca7.h"
+ #define RCC_NNAME(PF,X) PF ## MP_ ## X
+ #define RCC_SNAME(PF,X) PF ## MP_ ## X
 #elif MPU_TYPE == 13
  #include "stm32mp135cxx_ca7.h"
+ #define RCC_NNAME(PF,X) PF ## MP_NS_ ## X
+ #define RCC_SNAME(PF,X) PF ## MP_S_ ## X
+#elif MPU_TYPE == 25
+ #include "cpu.h"
+ #define RCC_NNAME(PF,X) PF ## MP_NS_ ## X
+ #define RCC_SNAME(PF,X) PF ## MP_S_ ## X
 #endif
 #include "system.h"
 
 // 0x83 is for 32bit OEM calls
-#define SMC_SET_FREQ  0x83000101
-#define SMC_DUMP_INFO 0x83000102
+#define SMC_SET_STGEN  0x83000101
+#define SMC_DUMP_INFO 0x83000104
 #define SMC_NSEC 0x83000103
+#define SMC_CHK_IAC 0x83000105
 #define SMC_MACH 0x83000200 // machine specific
 uint32_t call_smc(uint32_t cmd,uint32_t a1,uint32_t a2);
 	
@@ -37,7 +47,6 @@ void somp1_disable_osc();
 void i2c_setup(I2C_TypeDef *I2C);
 int i2c_wr(I2C_TypeDef *I2C,int addr,const char *data,int len,int aut);
 int i2c_rd(I2C_TypeDef *I2C,int addr,char *buf,int len);
-void cache_dbg_idc_register();
 const char *mp1_get_rpn_name();
 
 // Boot flags: each can have value 0..15 or undefined (-1)
