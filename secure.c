@@ -14,19 +14,25 @@
 #define CPUST_OFF 1
 #define CPUST_PEND 2
 
+static void stm32mp_init_gic_local()
+{
+	// SGIs (0-15) + PPIs (16-31) are banked per-CPU — set all as non-secure group 1
+	GICDistributor->IGROUPR[0] = 0xffffffff;
+	// CPU interface priority mask: allow all priorities through to NS
+	GICInterface->PMR = 0xff;
+	// enable CPU interface so interrupts can wake this core from WFI
+	GICInterface->CTLR = 1;
+}
+
 static void stm32mp_init_gic()
 {
-	// TODO: use GICInterface-like typedef
-	// need to do in secure state
-	uintptr_t gic_dist_addr = GIC_DISTRIBUTOR_BASE;
-	volatile uint32_t *ig = (void*)(gic_dist_addr + GICD_IGROUPRn);
-	volatile uint32_t *ctl = (void*)(gic_dist_addr + GICD_CTLR);
-	*ctl |= 3; // enable distributor
-	volatile uint32_t *type = (void*)(gic_dist_addr + GICD_TYPER);
-	int irq_cnt = *type & 0x1f,i;
-	// set all irqs as nonsecure
-	for (i = 0; i <= irq_cnt; i++) ig[i] = 0xffffffff;
-	GICInterface->PMR = 0xff; // low prio to allow NS to override it
+	// enable distributor for both secure and non-secure (bits 0+1)
+	GICDistributor->CTLR |= 3;
+	// set shared SPIs (IRQ 32+) as non-secure group 1; IGROUPR[0] is banked, done in local init
+	int irq_cnt = GICDistributor->TYPER & 0x1f, i;
+	for (i = 1; i <= irq_cnt; i++)
+		GICDistributor->IGROUPR[i] = 0xffffffff;
+	stm32mp_init_gic_local();
 }
 
 #define DBG_PRINT 1
@@ -124,6 +130,8 @@ static uint32_t chk_iac()
 	return n;
 }
 
+volatile uintptr_t cpu1_entry;
+
 uint32_t smc_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 {
 #if 0
@@ -154,7 +162,7 @@ uint32_t smc_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 		STGENC->CNTCR = 1;
 		return 0;
 	}
-	//dbg_print("\nSMC ",cmd,"\r\n");
+	dbg_print("\nSMC ",cmd,"\r\n");
 	if (cmd == 0x80000000) return 0x10001; // SMCCC version
 	if (cmd == 0x80000001) { // feats
 		if ((a1 & 0xfffffffe) == 0x80000000) return 0;
@@ -175,6 +183,14 @@ uint32_t smc_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 
 uint32_t call_smc_el3(uint32_t cmd,uintptr_t a1,uint32_t a2);
 void main_el1();
+
+void main_core1(void)
+{
+	stm32mp_init_gic_local();
+	// wait until PSCI CPU_ON sets the entry point
+	while (!cpu1_entry) asm volatile ("wfi");
+	call_smc_el3(SMC_NSEC, cpu1_entry, 0);
+}
 
 static void risab_as_NS(RISAB_TypeDef *R,int start)
 {

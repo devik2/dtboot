@@ -659,8 +659,7 @@ next:
 
 servant_core1:
         /* A35_1 core : Branch to its own main function */
-//        b       main_a35_1
-    //    b      servant_core1
+        bl      main_core1
         b       _exit
 
 	.global _exit
