@@ -20,6 +20,7 @@ SECTIONS
   . = __MEM_START__;
   .text.el3 . : {
         KEEP (* (RESET))
+        _sboot2.o(.text.early)
         _sboot2.o(.text)
         _sboot2.o(.text*)
         _sboot2.o(.rodata*)

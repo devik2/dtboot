@@ -115,6 +115,7 @@
         .weak el3_lower_el_aarch32_serror_vector
 
         // Start of vectors
+	.section .text.early
         .balign 0x800
 
         // Current EL with SP0
@@ -592,12 +593,11 @@ after_neon:
         msr     ttbr0_el1, x0
 
 /*============================================================================*/
-/* SMP (Symmetric Multi-Processing) mode : TO BE MANAGED AT EL1 !             */
-/* Clear bit 6 "SMPEN"/"Enable hardware management of data coherency"         */
-/* in CPU Extended Control register (CPUECTLR_EL1)                            */
+/* SMP: set SMPEN (CPUECTLR_EL1 bit6) for all cores so cache coherency works */
+/* before Linux enables D-cache on secondary cores                            */
 /*============================================================================*/
         mrs     x0, S3_1_C15_C2_1
-        bic     x0, x0, #(1<<6)
+        orr     x0, x0, #(1<<6)
         msr     S3_1_C15_C2_1, x0
         isb
 
@@ -652,6 +652,7 @@ after_neon:
 //	eret 
 next:
         /* A35_0 core : Branch to main function */
+        bl      prep_risab1
         bl      main
         b       exit
 	.cfi_endproc
@@ -706,12 +707,16 @@ handle_smc:
 	mov	x0,#0
 	msr	CNTVOFF_EL2,x0
 
+	mrs	x0, MPIDR_EL1	// skip DC CIVAC for secondary cores
+	and	x0, x0, #0xff
+	cbnz	x0, 3f
 	adr	x0,_el1_vect	// invalidate cache for whole region
-	adr	x1,end	
+	adr	x1,end
 2:	dc	civac, x0
 	add	x0,x0,#0x40
 	cmp	x0,x1
 	b.lo	2b
+3:
 	
 	adr	x30,.		// try to create some frame for gdb
 	mov	x29,sp

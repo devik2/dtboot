@@ -14,16 +14,18 @@
 #define CPUST_OFF 1
 #define CPUST_PEND 2
 
+__attribute__((section(".text.early")))
 static void stm32mp_init_gic_local()
 {
 	// SGIs (0-15) + PPIs (16-31) are banked per-CPU — set all as non-secure group 1
 	GICDistributor->IGROUPR[0] = 0xffffffff;
 	// CPU interface priority mask: allow all priorities through to NS
 	GICInterface->PMR = 0xff;
-	// enable CPU interface so interrupts can wake this core from WFI
-	GICInterface->CTLR = 1;
+	// enable CPU interface for Group1 only (our SGIs) so they can wake from WFI
+	GICInterface->CTLR = 2;
 }
 
+__attribute__((section(".text.early")))
 static void stm32mp_init_gic()
 {
 	// enable distributor for both secure and non-secure (bits 0+1)
@@ -82,10 +84,10 @@ int get_SCTLR3();
 int get_VBAR1();
 int get_VBAR3();
 extern int p_scr;
-uint32_t psci_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3);
+uint32_t psci_handler(uint32_t cmd,uintptr_t a1,uintptr_t a2,uintptr_t a3);
 
 __attribute__ ((weak))
-uint32_t smc_mach_hook(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
+uint32_t smc_mach_hook(uint32_t cmd,uintptr_t a1,uintptr_t a2,uintptr_t a3)
 {
 	return -1;
 }
@@ -111,6 +113,8 @@ static void cache_dbg_idc_register()
 }
 
 void etm_init();
+
+__attribute__((section(".text.early")))
 static void enable_all_dbg()
 {
 	BSEC->DENR = 0xdeb60ffe;
@@ -132,7 +136,7 @@ static uint32_t chk_iac()
 
 volatile uintptr_t cpu1_entry;
 
-uint32_t smc_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
+uint32_t smc_handler(uint32_t cmd,uintptr_t a1,uintptr_t a2,uintptr_t a3)
 {
 #if 0
 	xprintf("[%d] SMC %X %X %X %X SP %X pscr:%X\n",
@@ -184,14 +188,20 @@ uint32_t smc_handler(uint32_t cmd,uint32_t a1,uint32_t a2,uint32_t a3)
 uint32_t call_smc_el3(uint32_t cmd,uintptr_t a1,uint32_t a2);
 void main_el1();
 
+uint32_t _dbg_penhold;
+
+__attribute__((section(".text.early")))
 void main_core1(void)
 {
 	stm32mp_init_gic_local();
-	// wait until PSCI CPU_ON sets the entry point
-	while (!cpu1_entry) asm volatile ("wfi");
+	while (!cpu1_entry) {
+		_dbg_penhold++;
+		asm volatile ("wfe");
+	}
 	call_smc_el3(SMC_NSEC, cpu1_entry, 0);
 }
 
+__attribute__((section(".text.early")))
 static void risab_as_NS(RISAB_TypeDef *R,int start)
 {
 	R->CR = RISAB_CR_SRWIAD;	// allow also SEC access
@@ -203,13 +213,33 @@ static void risab_as_NS(RISAB_TypeDef *R,int start)
 }
 
 #define ENCLK(X) RCC->X = 6; (void)RCC->X
-extern char _el1_vect[];
-// we are entering in EL3
-void main(const boot_api_context_t *ctx)
+
+// called early to extend secure SRAM memory; or it will
+// fail to fetch insn at 0xe004000
+__attribute__((section(".text.early")))
+void prep_risab1()
 {
 	enable_all_dbg();
 	for(volatile int i=0;i<1000000;i++);
 
+	ENCLK(SRAM1CFGR);
+	ENCLK(SRAM2CFGR);
+
+	// set SYSRAM below _el1_vect as secure
+	extern char _el1_vect[];
+	uint32_t water = (uint32_t)_el1_vect & 0xffff;
+	risab_as_NS(RISAB1,(water+4095)/4096);
+	int i;
+	for (i=0;water > 0xfff; water -= 0x1000, i++) 
+		RISAB1->PGSECCFGR[i] = 0xff; // whole pages
+	if (water)
+		RISAB1->PGSECCFGR[i] = 0x0f; // extra half page
+
+}
+
+// we are entering in EL3
+void main(const boot_api_context_t *ctx)
+{
 	// assume all power pins are on
 	PWR->CR1 |= PWR_CR1_VDDIO3SV|PWR_CR1_VDDIO3VMEN|PWR_CR1_VDDIO3VRSEL*0;
 	PWR->CR1 |= PWR_CR1_VDDIO4SV|PWR_CR1_VDDIO4VMEN;
@@ -234,9 +264,7 @@ void main(const boot_api_context_t *ctx)
 	GPIOZ->SECCFGR = 0;
 	// enable RAMs to set RISAxx later
 	ENCLK(DDRCPCFGR);
-	ENCLK(SRAM1CFGR);
-	ENCLK(SRAM2CFGR);
-	if (1) {
+	if (0) {
 		RCC->DBGCFGR |= RCC_DBGCFGR_DBGEN|RCC_DBGCFGR_TRACEEN;
 		ENCLK(STMCFGR);
 		ENCLK(ETRCFGR);
@@ -251,18 +279,10 @@ void main(const boot_api_context_t *ctx)
 	CA35SYSCFG->M33_ACCESS_CR = 0; // TODO: should be PRIV but is doesn't work
 	CA35SYSCFG->M33_TZEN_CR = 0;
 
-	risab_as_NS(RISAB1,4);
 	risab_as_NS(RISAB2,0);
 	risab_as_NS(RISAB3,0);
 	risab_as_NS(RISAB4,0);
 	risab_as_NS(RISAB5,0);
-
-	// set SYSRAM below _el1_vect as secure
-	uint32_t water = (uint32_t)_el1_vect & 0xffff;
-	for (i=0;water > 0xfff; water -= 0x1000, i++) 
-		RISAB1->PGSECCFGR[i] = 0xff; // whole pages
-	if (water)
-		RISAB1->PGSECCFGR[i] = 0x0f; // extra half page
 
 	// NS access to DDR
 	RISAF4->REG[0].ENDR = 0xffffffff;
