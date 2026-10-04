@@ -281,29 +281,7 @@ __attribute__ ((weak)) void hook_boot_secure()
 {
 }
 
-static uint32_t otp57,otp58;
-static void read_secure_otp()
-{
-#if 0
-	TODO
-	RCC->MP_APB5ENSETR = RCC_MP_APB5ENSETR_BSECEN;
-	(void)RCC->MP_APB5ENSETR;
-
-	udelay(100);
-	BSEC->BSEC_OTP_CONFIG = 15; // enable BSEC
-	udelay(1000);
-	while (BSEC->BSEC_OTP_STATUS & BSEC_OTP_STATUS_BUSY);
-	BSEC->BSEC_OTP_CONTROL = 57; // read OTP data
-	udelay(100);
-	while (BSEC->BSEC_OTP_STATUS & BSEC_OTP_STATUS_BUSY);
-	BSEC->BSEC_OTP_CONTROL = 58;
-	udelay(100);
-	while (BSEC->BSEC_OTP_STATUS & BSEC_OTP_STATUS_BUSY);
-
-	otp57 = BSEC->BSEC_OTP_DATA[57]; // MAC address
-	otp58 = BSEC->BSEC_OTP_DATA[58];
-#endif
-}
+uint8_t cached_mac_addr[2][6]; // filled from EL3 by cache_mac_address()
 
 void test_thread(void *a)
 {
@@ -347,7 +325,6 @@ void main_el1()
 	coro_init();  // udelay becomes available
 	//try_boot_insn(1); TODO
 
-	//read_secure_otp();
 	int nons = mp1_mctx.boot_flags[BFI_NONS];
 
 	if (nons<0) nons = 0;
@@ -460,25 +437,21 @@ static int patch_mac_address(struct boot_param_header *fdt,
 	return 0;
 }
 
+static int mac_valid(const uint8_t *m)
+{
+	static const uint8_t zero[6], ff[6] = {0xff,0xff,0xff,0xff,0xff,0xff};
+	return memcmp(m, zero, 6) && memcmp(m, ff, 6);
+}
+
 static int run_otp(struct module_desc_t *dsc,struct boot_param_header *fdt,
 		uint32_t *root)
 {
-	uint8_t mac[6] = { 0x70,0xB3,0xD5,0xDC,0x10,0 }; // Metralight range 1
-
-	if (otp57 < 5) otp57 = 0; // some MPs has small weird value here
-	if (!otp57 && !otp58) return -1;
-	if (!otp57) {
-		// special hack to allocate our own MAC range
-		// without messing with regular OTP bits - it
-		// allows for other MAC later
-		memcpy(mac+4,((uint8_t*)&otp58)+2,2); // use 2MSB only
-		if ((mac[3]>>4) == 8) mac[3] = 0x15; // EAX range 1
-	} else {
-		memcpy(mac,(uint8_t*)&otp57,4);
-		memcpy(mac+4,(uint8_t*)&otp58,2);
+	for (int i = 0; i < 2; i++) {
+		if (!mac_valid(cached_mac_addr[i])) continue;
+		patch_mac_address(fdt, root, cached_mac_addr[i]);
+		return 0;
 	}
-	patch_mac_address(fdt,root,mac);
-	return 0;
+	return -1;
 }
 
 DECLARE_MOD(mp1_otp) {

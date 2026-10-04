@@ -166,7 +166,7 @@ uint32_t smc_handler(uint32_t cmd,uintptr_t a1,uintptr_t a2,uintptr_t a3)
 		STGENC->CNTCR = 1;
 		return 0;
 	}
-	dbg_print("\nSMC ",cmd,"\r\n");
+	//dbg_print("\nSMC ",cmd,"\r\n");
 	if (cmd == 0x80000000) return 0x10001; // SMCCC version
 	if (cmd == 0x80000001) { // feats
 		if ((a1 & 0xfffffffe) == 0x80000000) return 0;
@@ -187,6 +187,23 @@ uint32_t smc_handler(uint32_t cmd,uintptr_t a1,uintptr_t a2,uintptr_t a3)
 
 uint32_t call_smc_el3(uint32_t cmd,uintptr_t a1,uint32_t a2);
 void main_el1();
+
+// MP2 OTP layout: OTP247=mac1[0..3], OTP248=mac2[0..1]|mac1[4..5], OTP249=mac2[2..5]
+extern uint8_t cached_mac_addr[2][6];
+static void cache_mac_address(void)
+{
+	uint32_t w247 = BSEC->FVRw[247];
+	uint32_t w248 = BSEC->FVRw[248];
+	uint32_t w249 = BSEC->FVRw[249];
+
+	memcpy(cached_mac_addr[0], &w247, 4);
+	cached_mac_addr[0][4] = w248 & 0xff;
+	cached_mac_addr[0][5] = (w248 >> 8) & 0xff;
+
+	cached_mac_addr[1][0] = (w248 >> 16) & 0xff;
+	cached_mac_addr[1][1] = (w248 >> 24) & 0xff;
+	memcpy(cached_mac_addr[1] + 2, &w249, 4);
+}
 
 uint32_t _dbg_penhold;
 
@@ -291,6 +308,7 @@ void main(const boot_api_context_t *ctx)
 
 	stm32mp_init_gic();
 	cache_dbg_idc_register();
+	cache_mac_address();
 //		_halt();
 
 	call_smc_el3(SMC_NSEC,(uintptr_t)main_el1,0); // switch to NS state
