@@ -47,7 +47,7 @@ static void scmi_cache_clean()
 static void scmi_cache_inv()
 {
 	// assume 128B long cacheline aligned SCMIM
-	asm volatile("dc  cvac,%0\nadd x3,%0,#64\ndc  cvac,x3\ndsb ish":
+	asm volatile("dc civac,%0\nadd x3,%0,#64\ndc civac,x3\ndsb ish":
 			:"r"(SCMIM):"memory","x3");
 }
 
