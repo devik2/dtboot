@@ -188,13 +188,22 @@ uint32_t smc_handler(uint32_t cmd,uintptr_t a1,uintptr_t a2,uintptr_t a3)
 uint32_t call_smc_el3(uint32_t cmd,uintptr_t a1,uint32_t a2);
 void main_el1();
 
+// Trigger shadow register reload from OTP fuse and return the value.
+// Required for upper fuse words (>= 96) which are not auto-loaded at boot.
+static uint32_t read_otp(unsigned reg)
+{
+	BSEC->OTPCR = reg & BSEC_OTPCR_ADDR_Msk;
+	while (BSEC->OTPSR & BSEC_OTPSR_BUSY);
+	return BSEC->FVRw[reg];
+}
+
 // MP2 OTP layout: OTP247=mac1[0..3], OTP248=mac2[0..1]|mac1[4..5], OTP249=mac2[2..5]
 extern uint8_t cached_mac_addr[2][6];
 static void cache_mac_address(void)
 {
-	uint32_t w247 = BSEC->FVRw[247];
-	uint32_t w248 = BSEC->FVRw[248];
-	uint32_t w249 = BSEC->FVRw[249];
+	uint32_t w247 = read_otp(247);
+	uint32_t w248 = read_otp(248);
+	uint32_t w249 = read_otp(249);
 
 	memcpy(cached_mac_addr[0], &w247, 4);
 	cached_mac_addr[0][4] = w248 & 0xff;

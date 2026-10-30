@@ -48,7 +48,7 @@ static int32_t unpack_lzop2(struct mtd_dev_t *mtd,uint32_t addr,
 {
 	// LZO is in LZOP format with up to 256k blocks; use temp SRAM1/2 buffer
 	//void *sbuf = (void*)0x20040000; // SRAM1 TODO
-	void *sbuf = (void*)0x81800000; // SRAM1 TODO (sram is used by SCMI)
+	void *sbuf = (void*)0x82000000; // SRAM1 TODO (sram is used by SCMI)
 
 	int pgsh = mtd->chip->page_sh;
 	int pgsz = 1 << pgsh;
